@@ -90,7 +90,3 @@ For detailed usage, refer to the [Documentation](link-to-documentation).
 ## License
 
 This project is licensed under the [MIT License](link-to-license) - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Clojure
