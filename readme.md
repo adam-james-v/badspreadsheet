@@ -27,7 +27,8 @@ If you're interested in just quickly playing around with the prototype, I'd reco
 Otherwise, you can
  - [download the jar](https://github.com/adam-james-v/badspreadsheet/releases/tag/prototype-01).
  - `cd` into that directory and
- - run the build with `java -jar badspreadsheet-prototype.jar`. This will start the server and print the port it's using.
+ - run the build with `java -jar target/badspreadsheet-prototype.jar`. This will start the server and print the port it's using.
+   - NOTE: if you're getting an error referring to `out.edn`, you need the `out.edn` file at the root of this repo. in the same folder you run the jar from! 
  - Head to `localhost:THE_PORT_SPECIFIED` and get creative!
 
 ### Build from Source
