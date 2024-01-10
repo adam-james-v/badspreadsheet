@@ -9,18 +9,23 @@ Badspreadsheet is an experimental tool that I've built to help make little CAD t
 I'm making this prototype open to let others try it out and to explore some questions, figure out how to fix obvious design and usage issues, and to see what ideas other people might have.
 
 ### Features
+Check out these videos, which show things off nicely:
+
+https://github.com/adam-james-v/badspreadsheet/assets/21064735/78a3b36f-68b1-48f5-9f73-dd8d7612d710
+
+
+https://github.com/adam-james-v/badspreadsheet/assets/21064735/b66c29af-17dd-4a67-8804-20b4a7208a8e
 
 - **Code Cells**: Write Clojure code directly in spreadsheet cells and execute them on-the-fly.
 - **Cell Linking**: Easily link cells together, creating complex dependencies and calculations.
-- **Custom CAD Tools**: Design quick, specific CAD tools tailored to your unique requirements.
-- **Interactive Interface**: A user-friendly interface that bridges the gap between spreadsheets and coding.
+- **Rendering**: Renders Strings as Markdown, Gives numerical values usable inputs, and Renders Hiccup!
 
 ## Getting Started
 If you're interested in just quickly playing around with the prototype, I'd recommend downloading the jar and running it that way. It's also not too hard to clone the repository and run the code yourself if you're used to using Clojure's CLI tool. Finally, if you're a Clojure dev, it could be fun to use badspreadsheet as a library and really poke around.
 
 ### Run the Jar
 Otherwise, you can
- - [download the jar](https://github.com/adam-james-v/badspreadsheet/releases/download/001/badspreadsheet-prototype.jar).
+ - [download the jar](https://github.com/adam-james-v/badspreadsheet/releases/tag/prototype-01).
  - `cd` into that directory and
  - run the build with `java -jar badspreadsheet-prototype.jar`. This will start the server and print the port it's using.
  - Head to `localhost:THE_PORT_SPECIFIED` and get creative!
