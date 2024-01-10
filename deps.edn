@@ -1,0 +1,18 @@
+{:paths ["src" "resources" "test"]
+ :deps
+ {org.clojure/data.priority-map  {:mvn/version "0.0.7"}
+  io.github.escherize/huff       {:mvn/version "0.1.8"}
+  cheshire/cheshire              {:mvn/version "5.11.0"}
+  squint/squint                  {:git/url "https://github.com/squint-cljs/squint"
+                                  :git/sha "a5fbe35de852f84293b3cbb07faf114b953b1cd9"}
+  io.github.nextjournal/markdown {:mvn/version "0.5.148"}
+  org.clojure/spec.alpha         {:mvn/version "0.3.218"}
+  org.clojars.askonomm/ruuter    {:mvn/version "1.3.2"}
+  overtone/at-at                 {:mvn/version "1.3.58"}
+  svg-clj/svg-clj                {:local/root "/Users/adam/dev/svg-clj2"}
+  http-kit/http-kit              {:mvn/version "2.8.0-beta3"}}
+
+ :aliases
+ ;; clj -T:build uber
+ {:build {:deps       {io.github.clojure/tools.build {:git/tag "v0.9.5" :git/sha "24f2894"}}
+          :ns-default build}}}

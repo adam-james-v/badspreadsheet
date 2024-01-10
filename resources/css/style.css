@@ -1,0 +1,63 @@
+.markdown {
+    background: linear-gradient(
+        to bottom,
+        rgba(252, 250, 250, 0.5) 0%,
+        rgba(248, 249, 247, 0.4) 100%
+    );
+    backdrop-filter: blur(2px);
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+    /** font-family: 'Arial', sans-serif; **/
+    margin-top: 0px;
+    margin-bottom: 10px;
+}
+
+.markdown p {
+    /** font-family: 'Times New Roman', serif; **/
+    line-height: 1.6;
+    margin-bottom: 10px;
+}
+
+.markdown a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.markdown a:hover,
+.markdown a:focus {
+    text-decoration: underline;
+}
+
+.markdown img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.markdown table {
+    background: linear-gradient(
+        to bottom,
+        rgba(252, 250, 250, 0.35) 100%,
+        rgba(248, 249, 247, 0.25) 0%
+    );
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
