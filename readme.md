@@ -47,6 +47,11 @@ To use badspreadsheet as a library, you can add this to your `deps.edn`:
                                 :git/sha "GET LATEST"}}
 ```
 
+## Acknowledgements
+(Shall surely add more as I go)
+
+ - [Stathis Sideris](https://github.com/stathissideris) and the cells namespace in his datacore code: (https://github.com/stathissideris/datacore/blob/master/src/datacore/cells.clj)
+
 ## Open Questions and Known Problems
 
  - 'State smearing' -> I have state held in the cells and also in the spreadsheet namespace.
