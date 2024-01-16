@@ -1,0 +1,344 @@
+* What Happens When you Press 'Enter'?
+Pressing *enter* on an existing cell, when it's displaying an editor, will focus the editor and let you type. But I'm going to describe what happens when you press *enter* in an empty area of the spreadsheet; it's a little more interesting.
+
+** The Pre-requisite Steps of the Process
+Let's dive right into the steps necessary to get the spreadsheet up and running in a state that's ready for you to interact with.
+
+*** 1. The server sends the page responding to the get request at ~/~
+The page sent is built up by a few different functions, but ultimately looks like this:
+
+#+begin_src clojure
+[:html
+ [:head
+   [:meta {:charset "UTF-8"}]
+   [:meta {:name    "viewport"
+           :content "width=device-width, initial-scale=1"}]
+   [:title "badspreadsheet"]
+   [:link {:rel  "stylesheet"
+           :type "text/css"
+           :href "resources/css/style.css"}]
+   [:script {:src "resources/js/htmx.min.js"}]
+   [:script {:src "resources/js/ws.js"}]
+   [:script {:src "resources/js/squint.core.umd.js"}]
+   [:script "globalThis._sc = squint.core;"]
+   [:script {:src         "resources/js/es-module-shims.js"
+             :async       true
+             :crossorigin "anonymous"}]
+   [:script {:type "importmap"} [:hiccup/raw-html (slurp (io/resource "js/codemirror-import-map.json"))]]
+   [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/load-codemirror.js"))]]
+   [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/movable.js"))]]]
+ [:body
+   {:hx-ext "ws,morph"
+    :style {:margin 0
+            :padding 0}}
+   [:div {:ws-connect "/socket"}
+    [:<>
+     (into [:<>] (for [[_ entity] (:entities state)]
+                   (editor :init entity)))
+     (cursor (:cursor state))
+     [:script (wrap-js-in-content-loaded "initKeyPressListener();")]
+     [:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
+     [:script (wrap-js-in-content-loaded "initGamepadListener();")]]]]]
+#+end_src
+
+This is not html but ~hiccup~, a nice and very common way of representing html structure in Clojure. It can be compiled to html with the ~html~ macro and sent to the frontend.
+
+*** 2. The HTMX and websocket extension for HTMX load.
+The head of the page has several scripts. They're all necessary, but these 2 are key drivers for the whole app.
+
+#+begin_src clojure
+[:script {:src "resources/js/htmx.min.js"}]
+[:script {:src "resources/js/ws.js"}]
+#+end_src
+
+I'm reasonably happy with this simple solution for serving the files from the ~/resources/js~ directory too:
+
+#+begin_src clojure
+(defn- resource-response
+  [{:keys [params]}]
+  (let [{:keys [file partial-path]} params
+        ext  (last (str/split file #"\."))]
+    {:status  200
+     :headers {"Content-Type" (format "text/%s" (if (= ext "js") "javascript" ext))}
+     :body    (slurp (io/resource (str partial-path "/" file)))}))
+
+#+end_src
+
+It's probably not the most generalized, but it serves from /js or /css just fine, and that's all I've needed so far.
+
+*** 3. A few more scripts at the bottom of the page call some javascript functions setting important listeners.
+These scripts just call functions that are defined in the ~load-codemirror.js~ file. Poorly named in this prototype, admittedly.
+
+#+begin_src clojure
+[:script (wrap-js-in-content-loaded "initKeyPressListener();")]
+[:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
+[:script (wrap-js-in-content-loaded "initGamepadListener();")] ;; fun thing about prototypes is you can mess around with weird ideas ;)
+#+end_src
+
+*** 4. The initial page load will have rendered all existing cells into their appropriate locations and states
+Any existing entities (from loading an ~out.edn~ file in the root directory of wherever you're running things from) will have been loaded into the app's state, assuming you launched things with the ~-main~ function or are running the jar.
+
+This happens in this bit of code:
+
+#+begin_src clojure
+(into [:<>] (for [[_ entity] (:entities state)]
+                   (editor :init entity)))
+#+end_src
+
+For each entity in the ~:entities~ key of the state, render the editor component with the ~editor~ function. I won't go into details about the editor here, but just keep in mind that since I'm using HTMX, the editor function is just responsible for making a hiccup data structure, which gets compiled to an html fragment string and sent to the frontend.
+
+*** 5. The cursor has been loaded.
+The cursor is neat and relevant for today because it dictates where your new entity will ultimately end up. It does this by providing a target div for any new entity. Here's the line in the initial page load that adds the cursor:
+
+#+begin_src clojure
+(cursor (:cursor state))
+#+end_src
+
+And, more importantly, the cursor function itself:
+
+#+begin_src clojure
+(defn- cursor-icon
+  [w h]
+  (let [t      5
+        l      6
+        st     1
+        pts    [[0 0]
+                [0 (- l)] [(* -0.5 t) (- (+ l (* 0.5 t)))] [(- t) (- l)]
+                [(- t) 0] [0 t]
+                [l t] [(+ l (* 0.5 t)) (* 0.5 t)] [l 0]]
+        corner (-> (path/polygon pts)
+                   (tf/style {:stroke       green-d-col
+                              :stroke-width st
+                              :fill         green-m-col}))]
+    [:svg
+     {:width  (+ w (* (+ st t) 2))
+      :height (+ h (* (+ st t) 2))
+      :xmlns  "http://www.w3.org/2000/svg"}
+     (-> (el/g
+          (-> (el/rect w h)
+              (tf/translate [(* w 0.5) (* h 0.5)])
+              (tf/style {:stroke green-l-col :fill "none"}))
+          (-> (el/rect (+ w t (* st 0.5)) (+ h t (* st 0.5)))
+              (tf/translate [(* w 0.5) (* h 0.5)])
+              (tf/style {:stroke green-l-col :fill "none" :stroke-width 1 :opacity 1}))
+          (-> (el/g
+               (-> corner (tf/rotate 180) (tf/translate [w 0]))
+               (-> corner (tf/rotate   0) (tf/translate [0 h])))
+              (tf/style {:filter "drop-shadow(0px 0.5px 0.25px rgba(9, 9, 10, 0.35))"})))
+         (tf/translate [(+ t st) (+ t st)]))]))
+
+(defn cursor
+  [{:keys [location size]}]
+  (let [global-size (:size @state)
+        [x y]       location
+        [nx ny]     size]
+    [:<>
+     [:div#insert-target {:hx-swap-oob "afterend"}] ;; <-- the crucial div that lets us insert new entities!
+     [:div#cursor.fade-in
+      {:style {:pointer-events "none"}}
+      (let [pos-indicator-str      (format "[%s %s]" x y)
+            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
+        [:div {:style {:position "absolute"
+                       :left     (* (- x approx-pos-indicator-w) global-size)
+                       :top      (* (dec y) global-size)}}
+         pos-indicator-str])
+      (let [pos-indicator-str (format "[%s %s]" (+ x nx) (+ y ny))]
+        [:div {:style {:position "absolute"
+                       :left     (* (+ x nx) global-size)
+                       :top      (* (+ y ny) global-size)}}
+         pos-indicator-str])
+      [:div {:style {:box-sizing     "border-box"
+                     :border-radius  4
+                     :position       "absolute"
+                     :z-index        "90"
+                     :pointer-events "none"
+                     :margin         -6
+                     :left           (* x global-size)
+                     :top            (* y global-size)
+                     :width          (* nx global-size)
+                     :height         (* ny global-size)}}
+       (cursor-icon (* nx global-size) (* ny global-size))]]]))
+#+end_src
+
+I want to draw your attention for a moment to the ~:<>~ key at the front of some of the hiccup structures. That's a handy way to produce siblings without having to nest them inside a :div. So, this:
+
+#+begin_src clojure
+[:<> [:p "A"] [:p "B"]]
+#+end_src
+
+Turns into this html fragment:
+
+#+begin_src html
+<p>A</p><p>B</p>
+#+end_src
+
+This is probably not strictly necessary, but I find it quite nice to keep :div nesting down a bit. It makes it just that little bit easier to inspect the page source. For peolpe familiar with Clojure and the Hiccup library, you might be wondering how I handle this, as it's normally a feature of reagent, not Hiccup. I'm using [[https://github.com/escherize/huff/]] to do my hiccup compiling, and it supports ~:<>~.
+
+The crucial bit with the cursor, aside from its svg bits to show the user where and how large it is, is the empty div with the ~insert-target~ id; that's where HTMX will swap in a new entity when it comes.
+
+** The Steps of the Process
+Since we've loaded everything up, now we can get on to the action!
+
+*** 1. You press 'enter'
+Simple enough. The javascript on the frontend is ready and listening! The key press listener code is perhaps a bit crude, but it listens for combinations of keys that matter (or will matter) to the app and then does as POST with the key combo. Then it resets the keys list to an empty list so that it can do it again whenever a new key is pressed.
+
+#+begin_src javascript
+function initKeyPressListener() {
+  let dispatch = "keypress";
+  let keys = [];
+  document.addEventListener('keydown', (e) => {
+    keys = [];
+    if (e.key === 'Escape') { keys = ["escape"]; }
+    if (e.key === 'Enter') { keys = ["enter"]; } // <-- We only care about 'Enter' in this case
+    if (e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["shift", "n"]; }
+    if (e.ctrlKey  && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "n"]; }
+    if (e.ctrlKey  && (e.key === 'd' || e.key === 'D')) { keys = ["ctrl", "d"]; }
+    if (e.ctrlKey  && (e.key === 's' || e.key === 'S')) { keys = ["ctrl", "s"]; }
+    if (e.ctrlKey  && (e.key === 'c' || e.key === 'C')) { keys = ["ctrl", "c"]; }
+    if (e.ctrlKey  && (e.key === 'v' || e.key === 'V')) { keys = ["ctrl", "v"]; }
+    if (e.ctrlKey && e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "shift", "n"]; }
+
+    if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) { keys = ["ctrl", "shift", "f"]; }
+
+    if (e.key === 'ArrowLeft')  { keys = ["left"]; }
+    if (e.key === 'ArrowRight') { keys = ["right"]; }
+    if (e.key === 'ArrowUp')    { keys = ["up"]; }
+    if (e.key === 'ArrowDown')  { keys = ["down"]; }
+
+    if (e.key === 'ArrowLeft' && e.key === 'ArrowRight')  { keys = ["left", "right"]; }
+
+    if (e.shiftKey && e.key === 'ArrowLeft')  { keys = ["shift", "left"]; }
+    if (e.shiftKey && e.key === 'ArrowRight') { keys = ["shift", "right"]; }
+    if (e.shiftKey && e.key === 'ArrowUp')    { keys = ["shift", "up"]; }
+    if (e.shiftKey && e.key === 'ArrowDown')  { keys = ["shift", "down"]; }
+
+    if (e.ctrlKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "left"]; }
+    if (e.ctrlKey && e.key === 'ArrowRight') { keys = ["ctrl", "right"]; }
+    if (e.ctrlKey && e.key === 'ArrowUp')    { keys = ["ctrl", "up"]; }
+    if (e.ctrlKey && e.key === 'ArrowDown')  { keys = ["ctrl", "down"]; }
+
+    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "shift", "left"]; }
+    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowRight') { keys = ["ctrl", "shift", "right"]; }
+    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowUp')    { keys = ["ctrl", "shift", "up"]; }
+    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowDown')  { keys = ["ctrl", "shift", "down"]; }
+
+    if (keys.length > 0) {
+      fetch(`/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ dispatch, keys })
+      })
+    }
+    keys = [];
+  });
+}
+#+end_src
+
+Please remember that this is prototype code. It works. Elegance is not the goal here.
+
+*** 2. The keypress Listener sends a POST to the '/data' endpoint with the keypress data
+Anyway, the js ultimately ends up sending data that looks like this (as a Clojure map):
+
+#+begin_src clojure
+{:dispatch :keypress
+ :keys ["keys" "enter"]} ;; to be honest, I don't know why it sends that first "keys"
+#+end_src
+
+This may strike you as 'not the HTMX way', and I say "That's fine".
+
+The HTMX-y bit comes soon.
+
+*** 3. The server handles this POST request
+I've architected most of the app to have the frontend send any data to the same ~/data~ endpoint. It should always send a :dispatch key and can send any other data in the json. It gets handled like this on the backend:
+
+#+begin_src clojure
+
+(defmulti data-handler
+  "Method for handling anything that comes in on the /data endpoint."
+  (fn [{:keys [dispatch]}]
+    (keyword dispatch)))
+
+(defmethod data-handler :default
+  [data]
+  (println "Unhandled data: " data)
+  (println "You may have to implement `badspreadsheet.server/data-handler`.")
+  (println "Dispatch occurs off the value in the `:dispatch` key of the data."))
+
+#+end_src
+
+That's a Clojure multimethod setup. The ~defmulti~ part lets you establish the /dispatch function/. In this case, anything sent to the data handler is dispatched to an apropriate method based on the ~:dispatch~ key. If you're writing the javascript side of things and forget to write the method to handle it on the backend, you should see the warnings printed because your data will be handled by the ~:default~ method.
+
+*** 4. The :keypress method Works its magic
+I've shown you the method setup but not the method itself, so here it is:
+
+#+begin_src clojure
+(defmethod server/data-handler :keypress
+  [{keys-pressed :keys}]
+  (fix-occupied!)
+  (case (vec (rest keys-pressed))
+    ["enter"] (do (create-entity!) (focus-active-entity!))
+
+    ["shift" "up"]   (toggle-active-display! :up)
+    ["shift" "down"] (toggle-active-display! :down)
+
+    ["ctrl" "n"] (create-entity!)
+    ["ctrl" "d"] (delete-entity!)
+    ["ctrl" "c"] (copy-entities!)
+    ["ctrl" "v"] (paste-entities!)
+    ["ctrl" "s"] (save-entities! "out.edn")
+
+    ["left"]  (move-cursor! :left)
+    ["right"] (move-cursor! :right)
+    ["up"]    (move-cursor! :up)
+    ["down"]  (move-cursor! :down)
+
+    ["ctrl" "left"]  (move-entities-in-cursor! :left)
+    ["ctrl" "right"] (move-entities-in-cursor! :right)
+    ["ctrl" "up"]    (move-entities-in-cursor! :up)
+    ["ctrl" "down"]  (move-entities-in-cursor! :down)
+
+    ["ctrl" "shift" "left"]  (if (:active @state) (resize-active-entity! :h-) (resize-cursor! :h-))
+    ["ctrl" "shift" "right"] (if (:active @state) (resize-active-entity! :h+) (resize-cursor! :h+))
+    ["ctrl" "shift" "up"]    (if (:active @state) (resize-active-entity! :v-) (resize-cursor! :v-))
+    ["ctrl" "shift" "down"]  (if (:active @state) (resize-active-entity! :v+) (resize-cursor! :v+))
+    ;; default
+    (println "UNHANDLED KEYS: " keys-pressed)))
+#+end_src
+
+Here I'm using a ~case~ to handle the various key combos, and the default case prints a message saying you have an unhandled key combo.
+
+We care about ~["enter"]~ here, which calls 2 functions. I think ~focus-active-entity!~ is fairly self-explanatory so I won't go into details on that. The ~create-entity!~ function looks like this:
+
+#+begin_src clojure
+(defn- create-entity!
+  []
+  (let [{:keys [cursor active]} @state]
+    (when-not active
+      (println "creating entity...")
+      (let [entity-id (make-entity! (:location cursor) (:size cursor))]
+        (server/broadcast!
+         server-map
+         [:div#insert-target
+          {:hx-swap-oob "afterend"}
+          (editor (get-in @state [:entities entity-id]))])))))
+
+#+end_src
+
+Right away we check if there is an active entity (an entity id stored in the ~:active~ key of the state) and we only proceed if there isn't one. This is to prevent you from accidentally stacking a whole bunch of entities onto each other. It also lets you press enter while editing code in any active editor, which I think is critically important.
+
+~make-entity!~ Creates a new entity and stores it appropriately in the state atom. The cursor's state has its location and size which are passed in so that the entity is placed at the right location and in the expected size.
+
+Then, we do the HTMX thing and send the resulting html of the new entity (rendered by the ~editor~ function) to the frontend. I'm doing it here with a handy ~broadcast!~ function that sends it over the websocket.
+
+Notice that I'm sending a div with the id ~#insert-target~, which we know exists because it's rendered in the cursor!
+
+I am using the attribute ~:hx-swap-oob "afterend"~ which means we're doing an 'out of band' swap and the "afterned" setting means the response is inserted after the target element, as a sibling. So, we end up with another entity right where we want it, and the insert target is still in the dom for the next entity we want to insert.
+
+If this was at all interesting to you, thanks for reading :).
+
+I think you might also enjoy trying the spreadsheet out for yourself. You can read the code or try it by heading here:
+[[https://github.com/adam-james-v/badspreadsheet]]
+
+Thanks and have a nice day!
