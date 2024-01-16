@@ -28,7 +28,7 @@ Otherwise, you can
  - [download the jar](https://github.com/adam-james-v/badspreadsheet/releases/tag/prototype-01).
  - `cd` into that directory and
  - run the build with `java -jar target/badspreadsheet-prototype.jar`. This will start the server and print the port it's using.
-   - NOTE: if you're getting an error referring to `out.edn`, you need the `out.edn` file at the root of this repo. in the same folder you run the jar from! 
+   - NOTE: if you're getting an error referring to `out.edn`, you need the `out.edn` file at the root of this repo. in the same folder you run the jar from!
  - Head to `localhost:THE_PORT_SPECIFIED` and get creative!
 
 ### Build from Source
@@ -80,13 +80,27 @@ To use badspreadsheet as a library, you can add this to your `deps.edn`:
 
 ## Usage
 
-After starting `badspreadsheet`, you can begin by creating code cells. Here's a quick guide:
+After starting `badspreadsheet`, you can open your browser to the proper localhost port. There are a few cells with explanations for usage there. Here are the tables as well:
 
-1. **Create a Cell**: Click on a cell and start typing Clojure code.
-2. **Link Cells**: Reference other cells in your code for dynamic calculations.
-3. **Run Code**: Execute the code and see the results in real-time.
+### Keyboard Shortcuts
 
-For detailed usage, refer to the [Documentation](link-to-documentation).
+| **Keys**                 | **Action**                                                                   |
+|:------------------------ |:---------------------------------------------------------------------------- |
+| **Enter**                | Creates a new entity when cursor is over an empty space.                     |
+| **Ctrl-Arrows**          | Move the highlighted cell(s).                                                |
+| **Shift-Up/Down Arrows** | Cycles the active cell through editor, value, control, or off display modes. |
+| **Ctrl-Shift-Arrows**    | Resize the highlighted cell.                                                 |
+| **Ctrl-s**               | Save the Entities to 'out.edn'                                               |
+| **Ctrl-d**               | Delete the highlighted entity. Careful, there's no undo yet!                 |
+
+### Sheet Functions
+
+| **Function** | **Behaviour**                                                                                                                      |
+|:------------ |:---------------------------------------------------------------------------------------------------------------------------------- |
+| `(c# id)`    | Link the cell `id` to the cell you're currently editing. Gets its value and re-renders whenever the referenced cell updates        |
+| `(l# [x y])` | Link the cell at the specified absolute location to the cell you're currently editing. *Warning:* this doesn't work perfectly yet. |
+| `(t# ms)`    | Create a cell whose value increases every number of milliseconds `ms`                                                              |
+
 
 ## Contributing
 

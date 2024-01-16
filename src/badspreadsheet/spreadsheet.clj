@@ -13,9 +13,9 @@
    [nextjournal.markdown.transform :as md.transform]
    [overtone.at-at :as at]
    [squint.compiler]
-   [svg-clj2.elements :as el]
-   [svg-clj2.path :as path]
-   [svg-clj2.transforms :as tf]))
+   [svg-clj.elements :as el]
+   [svg-clj.path :as path]
+   [svg-clj.transforms :as tf]))
 
 (def state-map
   {:size     20
@@ -89,7 +89,7 @@
 }
 
 body {
-  font-family: 'Berkeley Mono';
+  font-family: 'Berkeley Mono', monospace;
   font-size: 10.5pt;
 }
 ")]])
@@ -107,9 +107,8 @@ body {
                                                       :width    "110vw"
                                                       :height   "110vh"}}
                                              [:div#entity-container
-                                              {:style {#_#_:position     "fixed"
-                                                       :width        "110vw"
-                                                       :height       "110vh"}}
+                                              {:style {:width  "110vw"
+                                                       :height "110vh"}}
                                               (init-grid-for-get!)]]])})}})
 
 (defn style
@@ -457,6 +456,7 @@ body {
                          :left     x
                          :filter   "drop-shadow(0px 2px 1px rgba(9, 9, 10, 0.65))"
                          :z-index  "190"}}
+
    [:div {:style {:position         "relative"
                   :left             0
                   :top              0
@@ -955,42 +955,13 @@ body {
 (defn start! []
   (server/serve! (deref #'server-map)))
 
-(defn init-grid!
-  ([] (init-grid! false))
-  ([clear?]
-   (when clear?
-     (clear-state!)
-     (mapv (fn [[loc size]]
-             (let [gs [10 10]]
-               (make-entity! (mapv * gs loc) (mapv * gs (or size [1 1])))))
-           [[[1 1]]
-            [[2 1]]
-            [[3 1]]
-            [[4 1]]
-            [[5 1]]
-            [[1 2] [5 2]]]))
-   (let [state @state]
-     (server/broadcast!
-      server-map
-      [:div#broadcast-target
-       [:<>
-        #_(render-grid (:size state))
-        (into [:<>] (for [[_ entity] (:entities state)]
-                      (editor entity)))
-        (cursor {:location [0 0] :size [1 1]})
-        [:script (wrap-js-in-content-loaded "initKeyPressListener();")]
-        [:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size @state)))]
-        [:script (wrap-js-in-content-loaded "initGamepadListener();")]]]))))
-
 (defn init-grid-for-get!
   []
   (let [state @state]
-    [:div#broadcast-target
-     [:<>
-      #_(render-grid (:size state))
-      (into [:<>] (for [[_ entity] (:entities state)]
-                    (editor :init entity)))
-      (cursor (:cursor state))
-      [:script (wrap-js-in-content-loaded "initKeyPressListener();")]
-      [:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
-      [:script (wrap-js-in-content-loaded "initGamepadListener();")]]]))
+    [:<>
+     (into [:<>] (for [[_ entity] (:entities state)]
+                   (editor :init entity)))
+     (cursor (:cursor state))
+     [:script (wrap-js-in-content-loaded "initKeyPressListener();")]
+     [:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
+     [:script (wrap-js-in-content-loaded "initGamepadListener();")]]))
