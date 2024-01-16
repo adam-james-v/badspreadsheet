@@ -1,5 +1,9 @@
 # What Happens When you Press 'Enter'?
 
+
+https://github.com/adam-james-v/badspreadsheet/assets/21064735/4b46f347-b6e8-4335-abe9-df6e2fcfad13
+
+
 Pressing **enter** on an existing cell, when it's displaying an editor, will focus the editor and let you type. But I'm going to describe what happens when you press **enter** in an empty area of the spreadsheet; it's a little more interesting.
 
 ## The Pre-requisite Steps of the Process
