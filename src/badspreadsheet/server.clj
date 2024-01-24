@@ -44,7 +44,6 @@
   (huff/page {:allow-raw true} [:<> head (page-body (or content [:div#broadcast-target "broadcast here!"]))]))
 
 ;; websocket handling
-
 (def channels (atom #{}))
 
 (defn connect! [channel]
@@ -103,13 +102,9 @@
    :params params})
 
 (defn- resource-response
-  [{:keys [params uri]}]
+  [{:keys [params]}]
   (let [{:keys [file partial-path]} params
-        ext  (last (str/split file #"\."))
-        #_#_path (-> uri
-                 (str/replace #"/resources/" "")
-                 (str/split #"/")
-                 first)]
+        ext  (last (str/split file #"\."))]
     {:status  200
      :headers {"Content-Type" (format "text/%s" (if (= ext "js") "javascript" ext))}
      :body    (slurp (io/resource (str partial-path "/" file)))}))

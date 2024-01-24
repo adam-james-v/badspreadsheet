@@ -330,8 +330,7 @@ body {
           (cons 'do read-forms)
           (first read-forms))))
     (catch Exception e
-      (println "Error reading string:" (.getMessage e))
-      (println "String is: " s)
+      (println "Error reading string.")
       nil)))
 
 (def ^:private sharp-forms
@@ -410,7 +409,7 @@ body {
   (try
     (formulize form)
     (catch Exception e
-      (println "Error formulizing form: " form #_(.getMessage) e))))
+      (println "Error formulizing form."))))
 
 (defn reset-cell!
   [cell-id form]
@@ -612,14 +611,6 @@ body {
                   :width          size
                   :height         size}}]])
 
-(defn render-grid
-  [size]
-  (println "renderg-grid")
-  (into [:<>]
-        (for [y (range -100 100)
-              x (range -100 100)]
-          (grid-square x y size))))
-
 (defn render-entities
   []
   (into [:<>]
@@ -691,8 +682,8 @@ body {
 
 (defn read-edn-file [file-path]
   (with-open [rdr (io/reader file-path)]
-    (edn/read-string {:readers {'adam.tools.cells2.CellID (fn [{:keys [id]}]
-                                                            (c/->CellID id))}
+    (edn/read-string {:readers {'badspreadsheet.cells2.CellID (fn [{:keys [id]}]
+                                                                {:id id})}
                       :default (fn [_tag value] value)} (slurp rdr))))
 
 (defn- temp-entity
@@ -927,7 +918,6 @@ body {
 (defmethod server/data-handler :gamepad
   [{:keys [buttons]}]
   (fix-occupied!)
-  (println buttons)
   (case (vec (rest buttons))
     ["d-left"]  (move-cursor! :left)
     ["d-right"] (move-cursor! :right)

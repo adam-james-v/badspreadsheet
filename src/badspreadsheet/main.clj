@@ -5,5 +5,6 @@
 
 (defn -main
   []
+  (bs/clear-state!)
   (bs/start!)
   (bs/load-entities! "out.edn"))
