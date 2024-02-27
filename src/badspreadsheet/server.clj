@@ -21,6 +21,7 @@
            :type "text/css"
            :href "resources/css/style.css"}]
    [:script {:src "resources/js/htmx.min.js"}]
+   [:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
    [:script {:src "resources/js/ws.js"}]
    [:script {:src "resources/js/squint.core.umd.js"}]
    [:script "globalThis._sc = squint.core;"]
@@ -34,7 +35,7 @@
 (defn page-body
   [content]
   [:body
-   {:hx-ext "ws,morph"
+   {:hx-ext "ws,idiomorph"
     :style {:margin 0
             :padding 0}}
    (into [:div {:ws-connect "/socket"}] content)])

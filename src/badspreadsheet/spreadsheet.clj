@@ -1,7 +1,11 @@
 (ns badspreadsheet.spreadsheet
   (:require
-   [badspreadsheet.cells :as c]
+   [badspreadsheet.cells2 :as c]
    [badspreadsheet.server :as server]
+   [clojure.core.async :as a
+    :refer [chan go-loop
+            pub sub unsub
+            >! <! >!! <!!]]
    [clojure.data :as data]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
@@ -15,7 +19,9 @@
    [squint.compiler]
    [svg-clj.elements :as el]
    [svg-clj.path :as path]
-   [svg-clj.transforms :as tf]))
+   [svg-clj.transforms :as tf]
+   [scicloj.kindly.v4.kind :as kind]
+   [scicloj.kindly-advice.v1.api :as kindly-advice]))
 
 (def state-map
   {:size     20
@@ -34,8 +40,8 @@
 (defonce runner-pool (at/mk-pool))
 
 (defn clear-state! []
+  (c/reset-cells!)
   (reset! c/global-cells {})
-  (reset! c/cell-counter -1)
   (reset! entity-counter -1)
   (at/stop-and-reset-pool! runner-pool)
   (reset! state state-map))
@@ -145,20 +151,7 @@ body {
     (hiccup? value)                      value
     :else                                (str value)))
 
-(comment
-  ;; what are entities?
-  ;; they have a few properties:
-
-
-  {:location [0 2] ;; grid X and Y
-   :size     [1 1] ;; grid unit width and height
-   :display  :value ;; one of :value :content (add more in future, eg. :raw-value)
-   :cell     :the-cell-id
-   :watcher  :the-watcher-cell-id
-   :content  "string of the editor's content"
-   :error    "maybe put errors here?"})
-
-(defn- watch-fn
+#_(defn- watch-fn
   [id]
   (fn [value]
     (server/broadcast!
@@ -166,16 +159,86 @@ body {
      [:span {:id (format "value-%s" id)} (render-value value)])
     value))
 
+;; maybe start using kindly here
+(defn render-value2
+  [{:keys [id value display]}]
+  [:span {:id (format "value-%s" id)}
+   (case display
+     :note (if (string? value)
+             (render-markdown-string value)
+             value)
+     (render-value value))])
+
+(defonce previous-render (atom #{}))
+(defn bulk-render-and-broadcast []
+  (let [values        (->> @c/global-cells
+                           :cells
+                           vals
+                           (mapv (fn [cell]
+                                   (let [{:keys [id output error display]} @cell]
+                                     [id {:id id
+                                          :display display
+                                          :value (or error output)}])))
+                           (into {}))
+        [_ changed _] (data/diff @previous-render values)
+        messages      (select-keys values (keys changed))]
+    (when (seq messages)
+      (reset! previous-render values)
+      (server/broadcast!
+       server-map
+       (map
+        (fn [{:keys [id value]}]
+          [:span {:id (format "value-%s" id)} (render-value value)])
+        (vals messages))))))
+
+(defonce watcher-control-chan (chan))
+(defonce watcher-control-chan-mult (a/mult watcher-control-chan))
+
+(defn stop-watcher []
+  (>!! watcher-control-chan true))
+
+(defn start-watcher []
+  (let [listen-chan (chan 10)
+        broadcast-interval-ms 16
+        accumulator (atom false)
+        control-a (chan)
+        control-b (chan)]
+    (a/tap c/event-bus-mult listen-chan)
+    (a/tap watcher-control-chan-mult control-a)
+    (a/tap watcher-control-chan-mult control-b)
+    ;; Message listening loop
+    (go-loop []
+      (let [[_m ch] (a/alts! [listen-chan control-a])]
+        (if (= ch listen-chan)
+          (do (reset! accumulator true)
+              (recur))
+          (do (a/untap c/event-bus-mult listen-chan)
+              (a/untap watcher-control-chan-mult control-a)
+              (println "accumulator loop in watcher stopped")))))
+    ;; Broadcast loop
+    (go-loop []
+      ;; Wait for the next broadcast interval
+      (let [[_ ch] (a/alts! [(a/timeout broadcast-interval-ms) control-b])]
+        ;; Broadcast accumulated messages
+        (if (not= ch control-b)
+          (do (when @accumulator
+                (#'bulk-render-and-broadcast)
+                (reset! accumulator false))
+              (recur))
+          (do (a/untap watcher-control-chan-mult control-b)
+              (println "broadcast loop in watcher stopped")))))))
+
 (defn make-entity
   [loc size]
   (let [id (new-entity-id)
-        cell (c/formula (fn [] nil))]
+        cell (-> (c/formula (fn [] ""))
+                 #_(c/c-merge {:display :content}))]
+    (c/touch! cell)
     {:id id
      :location loc
      :size size
      :display :content
      :cell cell
-     :watcher (c/formula (watch-fn id) cell)
      :content ""
      :error nil
      :timers nil}))
@@ -226,7 +289,7 @@ body {
 (defn remove-entity!
   [id]
   (let [{:keys [occupied] :as lstate}     @state
-        {:keys [cell watcher] :as entity} (get-in lstate [:entities id])]
+        {:keys [cell] :as entity} (get-in lstate [:entities id])]
     (when entity
       (let [old-covering (entity-covers entity)
             xf           (fn [state]
@@ -240,7 +303,6 @@ body {
         (doseq [loc-cell (map #(get-in lstate [:location-cells %]) old-covering)]
           (when loc-cell
             (c/touch! loc-cell)))
-        (c/destroy! watcher)
         (c/destroy! cell)))))
 
 (defn move-entity!
@@ -300,17 +362,10 @@ body {
    (let [vals         (conj (vec (rest display-sequence)) (first display-sequence))
          next-display (case direction
                         :up   (zipmap display-sequence vals)
-                        :down (zipmap vals display-sequence))]
+                        :down (zipmap vals display-sequence))
+         nd (next-display (:display entity))]
+     (c/c-assoc (:cell entity) :display nd)
      (update entity :display next-display))))
-
-(defn maybe-load-string [s]
-  (when (and s (> (count s) 0))
-    (try
-      (load-string (format "(in-ns 'badspreadsheet.spreadsheet)\n%s" s))
-      (catch Exception e
-        (println "Error loading string: " (.getMessage e))
-        (println "String is: " s)
-        nil))))
 
 (defn maybe-read-string [s]
   (try
@@ -329,15 +384,16 @@ body {
         (if (> (count read-forms) 1)
           (cons 'do read-forms)
           (first read-forms))))
-    (catch Exception e
+    (catch Exception _e
       (println "Error reading string.")
       nil)))
 
 (def ^:private sharp-forms
-  {'c# 'badspreadsheet.spreadsheet/c# ;; value by id
-   't# 'badspreadsheet.spreadsheet/t# ;; timer tick every n ms
-   'l# 'badspreadsheet.spreadsheet/l# ;; value by location
-    })
+  {'c#   'badspreadsheet.spreadsheet/c#   ;; value by id
+   't#   'badspreadsheet.spreadsheet/t#   ;; timer tick every n ms
+   'l#   'badspreadsheet.spreadsheet/l#   ;; value by location
+   'tap# 'badspreadsheet.spreadsheet/tap# ;; sets up a tap target
+   })
 
 (defn collect-sharp-forms
   [form]
@@ -349,7 +405,8 @@ body {
     (vec (distinct (collect form)))))
 
 ;; this needs to return the cell-id
-(defn c# [entity-id] (get-in @state [:entities entity-id :cell]))
+(defn c# [entity-id]
+  (or (get-in @state [:entities entity-id :cell]) entity-id))
 
 (defn swap-zero-arity-formula!
   [cell f & args]
@@ -383,6 +440,7 @@ body {
                       ids        (get-in state [:locations loc])
                       value-cell (get-in state [:entities (first ids) :cell])]
                   (when value-cell
+                    (c/touch! value-cell)
                     (c/value value-cell)))))]
     (swap! state assoc-in [:location-cells loc] cell)
     cell))
@@ -400,7 +458,9 @@ body {
         syms             (mapv (fn [[sym id]] (symbol (format "%s%s" sym id))) sharps)
         smap             (zipmap sharps syms)
         input-cell-forms (vec (walk/postwalk-replace sharp-forms sharps))]
-    {:fun         (eval `(fn ~syms ~(walk/postwalk-replace smap form)))
+    {:fun         (eval `(fn ~syms
+                           (binding [~'*ns* (find-ns '~'user)]
+                             ~(walk/postwalk-replace smap form))))
      :form        `(fn ~syms ~(walk/postwalk-replace smap form))
      :input-cells (when (seq input-cell-forms) (map eval input-cell-forms))}))
 
@@ -408,14 +468,14 @@ body {
   [form]
   (try
     (formulize form)
-    (catch Exception e
+    (catch Exception _e
       (println "Error formulizing form."))))
 
 (defn reset-cell!
-  [cell-id form]
+  [id form]
   (let [{:keys [fun _form input-cells]} (maybe-formulize form)]
     (when fun
-      (apply c/reset-function! cell-id fun input-cells))))
+      (c/reset-function! id fun input-cells))))
 
 (defn compile-string
   [clj-str]
@@ -712,8 +772,8 @@ body {
       (try
         (c/touch! cell-id)
         (catch Exception _e nil)))
-    (doseq [{:keys [watcher]} (-> @state :entities vals)]
-      (c/touch! watcher))))
+    (doseq [{:keys [cell]} (-> @state :entities vals)]
+      (c/touch! cell))))
 
 (defmethod server/data-handler :make-active
   [{:keys [id]}]

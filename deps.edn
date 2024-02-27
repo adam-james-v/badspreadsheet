@@ -11,7 +11,9 @@
   overtone/at-at                 {:mvn/version "1.3.58"}
   svg-clj/svg-clj                {:git/url "https://github.com/adam-james-v/svg-clj"
                                   :git/sha "8c8d90535c3d6d421993833f6af4936e36301eb5"}
-  http-kit/http-kit              {:mvn/version "2.8.0-beta3"}}
+  http-kit/http-kit              {:mvn/version "2.8.0-beta3"}
+  org.scicloj/kindly-advice      {:mvn/version "1-alpha7"}
+  org.scicloj/kindly             {:mvn/version "4-alpha12"}}
 
  :aliases
  ;; clj -T:build uber
