@@ -31,6 +31,13 @@ Otherwise, you can
    - NOTE: if you're getting an error referring to `out.edn`, you need the `out.edn` file at the root of this repo. in the same folder you run the jar from!
  - Head to `localhost:THE_PORT_SPECIFIED` and get creative!
 
+### Run from Source
+If you want to run from source you can:
+ - `git clone https://github.com/adam-james-v/badspreadsheet.git`
+ - `cd badspreadsheet`
+ - `clojure -M -m badspreadsheet.main` which should run the main function
+ - Head to `localhost:THE_PORT_SPECIFIED` and have fun!
+
 ### Build from Source
 If you're comfortable with Clojure, you can do the following:
  - `git clone https://github.com/adam-james-v/badspreadsheet.git`
