@@ -187,46 +187,50 @@ body {
       (server/broadcast!
        server-map
        (map
-        (fn [{:keys [id value]}]
-          [:span {:id (format "value-%s" id)} (render-value value)])
+        render-value2
         (vals messages))))))
 
 (defonce watcher-control-chan (chan))
 (defonce watcher-control-chan-mult (a/mult watcher-control-chan))
+(defonce watcher-running (atom false))
 
 (defn stop-watcher []
-  (>!! watcher-control-chan true))
+  (>!! watcher-control-chan true)
+  (reset! watcher-running false))
 
 (defn start-watcher []
-  (let [listen-chan (chan 10)
-        broadcast-interval-ms 16
-        accumulator (atom false)
-        control-a (chan)
-        control-b (chan)]
-    (a/tap c/event-bus-mult listen-chan)
-    (a/tap watcher-control-chan-mult control-a)
-    (a/tap watcher-control-chan-mult control-b)
-    ;; Message listening loop
-    (go-loop []
-      (let [[_m ch] (a/alts! [listen-chan control-a])]
-        (if (= ch listen-chan)
-          (do (reset! accumulator true)
-              (recur))
-          (do (a/untap c/event-bus-mult listen-chan)
-              (a/untap watcher-control-chan-mult control-a)
-              (println "accumulator loop in watcher stopped")))))
-    ;; Broadcast loop
-    (go-loop []
-      ;; Wait for the next broadcast interval
-      (let [[_ ch] (a/alts! [(a/timeout broadcast-interval-ms) control-b])]
-        ;; Broadcast accumulated messages
-        (if (not= ch control-b)
-          (do (when @accumulator
-                (#'bulk-render-and-broadcast)
-                (reset! accumulator false))
-              (recur))
-          (do (a/untap watcher-control-chan-mult control-b)
-              (println "broadcast loop in watcher stopped")))))))
+  (when-not @watcher-running
+    (reset! watcher-running true)
+    (let [listen-chan (chan 10)
+          broadcast-interval-ms 16
+          accumulator (atom false)
+          control-a (chan)
+          control-b (chan)]
+      (a/tap c/event-bus-mult listen-chan)
+      (a/tap watcher-control-chan-mult control-a)
+      (a/tap watcher-control-chan-mult control-b)
+      ;; Message listening loop
+      (go-loop []
+        (let [[_m ch] (a/alts! [listen-chan control-a])]
+          (println "MESSAGE: " _m)
+          (if (= ch listen-chan)
+            (do (reset! accumulator true)
+                (recur))
+            (do (a/untap c/event-bus-mult listen-chan)
+                (a/untap watcher-control-chan-mult control-a)
+                (println "accumulator loop in watcher stopped")))))
+      ;; Broadcast loop
+      (go-loop []
+        ;; Wait for the next broadcast interval
+        (let [[_ ch] (a/alts! [(a/timeout broadcast-interval-ms) control-b])]
+          ;; Broadcast accumulated messages
+          (if (not= ch control-b)
+            (do (when @accumulator
+                  (#'bulk-render-and-broadcast)
+                  (reset! accumulator false))
+                (recur))
+            (do (a/untap watcher-control-chan-mult control-b)
+                (println "broadcast loop in watcher stopped"))))))))
 
 (defn make-entity
   [loc size]

@@ -61,12 +61,14 @@
           (a/close! channel)
           (a/close! control-channel)
           (reset! state nil))
-        (let [[{:keys [id value action]} ch] (a/alts! [channel control-channel])]
+        (let [[{input-id :id
+                value    :value
+                action   :action} ch] (a/alts! [channel control-channel])]
           (if (= ch channel)
             (do
               (let [{:keys [imap]} @state]
                 ;; store the input's value
-                (doseq [input-idx (get imap id)]
+                (doseq [input-idx (get imap input-id)]
                   (swap! state assoc-in [:current input-idx] value)))
 
               ;; maybe compute new output value
