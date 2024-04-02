@@ -3,6 +3,16 @@ import { EditorView, drawSelection, keymap } from  '@codemirror/view';
 import { EditorState } from  '@codemirror/state';
 import { syntaxHighlighting, defaultHighlightStyle, foldGutter } from '@codemirror/language';
 
+function send(body) {
+  fetch('/data', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 let theme = EditorView.theme({
   "&.cm-editor" : {"background": "aliceblue",
                    "border-radius": "7px"},
@@ -16,7 +26,7 @@ let theme = EditorView.theme({
                "line-height": "1.2",
                "font-size": "10.5pt",
                //"font-family": "var(--code-font)",
-               "font-family": "Berkeley Mono"},
+               "font-family": "'Berkeley Mono', monospace"},
   ".cm-matchingBracket": {"border-bottom": "1px solid var(--teal-color)",
                           "color": "inherit"},
   ".cm-gutters": {background: "transparent",
@@ -195,59 +205,174 @@ function attachEntityListeners(elementID) {
   });
 }
 
+var dragHandleActive = false;
+
+function toggleDragHandle() {
+  dragHandleActive = !dragHandleActive;
+}
+
+function getCameraLocation() {
+  const cursorElement = document.getElementById('cursor');
+  const cameraLocation = cursorElement.getAttribute('camera-location');
+  return cameraLocation.split(',').map(Number);
+}
+
+function getCursorLocation() {
+  const cursorElement = document.getElementById('cursor');
+  const cursorLocation = cursorElement.getAttribute('cursor-location');
+  return cursorLocation.split(',').map(Number);
+}
+
+function getCursorSize() {
+  const cursorElement = document.getElementById('cursor');
+  const cursorSize = cursorElement.getAttribute('cursor-size');
+  return cursorSize.split(',').map(Number);
+}
+
+function addVectors(v1, v2) {
+  if (v1.length !== v2.length) {
+    throw new Error('Vectors must be of the same length');
+  }
+  return v1.map((val, index) => val + v2[index]);
+}
+
+function subtractVectors(v1, v2) {
+  if (v1.length !== v2.length) {
+    throw new Error('Vectors must be of the same length');
+  }
+  return v1.map((val, index) => val - v2[index]);
+}
+
+let globalGridSize = 20;
 function initMouseEventsListener(gridSize) {
+  globalGridSize = gridSize;
   let lastGridX = -1;
   let lastGridY = -1;
   let mouseDown = false;
+  let dragging = false;
   let startLocX = -1;
   let startLocY = -1;
   let el = document.getElementById('bg');
 
   document.addEventListener('mousedown', (e) => {
-    const rect =  el.getBoundingClientRect();
+    // Ignore clicks on buttons and other specified elements
+    if (e.target.className.includes('prevent-cursor-move') && !dragHandleActive) {
+      return;
+    }
+    const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left; // x position within the element.
     const y = e.clientY - rect.top;  // y position within the element.
 
-    startLocX = Math.floor(x / gridSize);
-    startLocY = Math.floor(y / gridSize);
+    let cameraLoc = getCameraLocation();
+    let loc = dragHandleActive
+        ? subtractVectors(getCursorLocation(), cameraLoc)
+        : [-1, -1];
+
+    startLocX = dragHandleActive
+      ? loc[0]
+      : Math.floor(x / gridSize) + cameraLoc[0];
+
+    startLocY = dragHandleActive
+      ? loc[1]
+      : Math.floor(y / gridSize) + cameraLoc[1];
+
+    lastGridX = startLocX;
+    lastGridY = startLocY;
     mouseDown = true;
   });
 
   document.addEventListener('mouseup', (e) => {
-    startLocX = -1;
-    startLocY = -1;
     mouseDown = false;
+    dragging = false;
+    dragHandleActive = false;
+    // Ignore clicks on buttons and other specified elements
+    if (e.target.className.includes('prevent-cursor-move')) {
+      return;
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    // Ignore clicks on buttons and other specified elements
+    if (e.target.className.includes('prevent-cursor-move')) {
+      return;
+    }
+
+    if (!dragging) {
+      // Handle click event here, as there was no mouse movement
+      sendCursorData([startLocX, startLocY], [0, 0]);
+    }
   });
 
   document.addEventListener('mousemove', (e) => {
+    if (!mouseDown || e.target.className.includes('prevent-cursor-move')) return; // Do nothing if the mouse is not pressed down
 
-    const rect =  el.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left; // x position within the element.
     const y = e.clientY - rect.top;  // y position within the element.
+    let cameraLoc = getCameraLocation();
+    const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+    const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+    let startSize = getCursorSize();
+    let startSizeX = startSize[0];
+    let startSizeY = startSize[1];
 
-    const gridX = Math.floor(x / gridSize);
-    const gridY = Math.floor(y / gridSize);
-
-    let dispatch = "mouse-event";
-    if (gridX !== lastGridX || gridY !== lastGridY) {
+    if (dragHandleActive &&
+        !e.target.className.includes('prevent-cursor-move') &&
+        (gridX !== lastGridX || gridY !== lastGridY)) {
+      dragging = true; // Mouse is moving while pressed down, indicating a drag
       lastGridX = gridX;
       lastGridY = gridY;
-      let location = [gridX, gridY];
-      let size = [1, 1];
-      if (mouseDown === true) {
-        location = [startLocX, startLocY];
-        size = [(1 + (gridX - startLocX)), (1 + (gridY - startLocY))];
-      }
-      fetch(`/data`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ dispatch, location, size })
-      })
+      let sizeX = (gridX - startLocX + 1);
+      let sizeY = (gridY - startLocY + 1);
+      let location = dragHandleActive ? [(gridX - startSizeX + 1), (gridY - startSizeY + 1)] : [startLocX, startLocY];
+      let size = dragHandleActive ? [0, 0] : [sizeX, sizeY];
+      // Send data to the server in the 'dragging' state
+      sendCursorData(location, size);
     }
-  })
+    if (!dragHandleActive &&
+        !e.target.className.includes('prevent-cursor-move') &&
+        (gridX !== lastGridX || gridY !== lastGridY)) {
+      dragging = false; // Mouse is moving while pressed down, indicating a drag
+      lastGridX = gridX;
+      lastGridY = gridY;
+      let sizeX = (gridX - startLocX + 1);
+      let sizeY = (gridY - startLocY + 1);
+      let location = [startLocX, startLocY];
+      let size = [sizeX, sizeY];
+      // Send data to the server in the 'dragging' state
+      sendCursorData(location, size);
+    }
+  });
+
+  document.addEventListener('dblclick', (e) => {
+    // Ignore clicks on buttons and other specified elements
+    if (e.target.closest('.prevent-cursor-move')) {
+      return;
+    }
+    let cameraLoc = getCameraLocation();
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+    const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+
+    // Reset size to 1x1 on double-click and send data to the server
+    sendCursorData([gridX, gridY], [1, 1]);
+  });
+
+  function sendCursorData(location, size) {
+    let dispatch = "mouse-event";
+    let dragging = dragHandleActive;
+    fetch(`/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ dispatch, location, size, dragging })
+    });
+  }
 }
+
 
 function initKeyPressListener() {
   let dispatch = "keypress";
@@ -263,6 +388,7 @@ function initKeyPressListener() {
     if (e.ctrlKey  && (e.key === 's' || e.key === 'S')) { keys = ["ctrl", "s"]; }
     if (e.ctrlKey  && (e.key === 'c' || e.key === 'C')) { keys = ["ctrl", "c"]; }
     if (e.ctrlKey  && (e.key === 'v' || e.key === 'V')) { keys = ["ctrl", "v"]; }
+    if (e.ctrlKey  && (e.key === 'w' || e.key === 'W')) { keys = ["ctrl", "w"]; }
     if (e.ctrlKey && e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "shift", "n"]; }
 
     if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) { keys = ["ctrl", "shift", "f"]; }
@@ -562,6 +688,268 @@ function initGamepadListener() {
   }
 }
 
+document.addEventListener('wheel', function(e) {
+  const threshold = 3; // Adjust threshold value as needed
+  const direction = {
+    horizontal: e.deltaX > threshold ? 'right' : e.deltaX < -threshold ? 'left' : null,
+    vertical: e.deltaY > threshold ? 'down' : e.deltaY < -threshold ? 'up' : null,
+  };
+
+  if (direction.horizontal !== null || direction.vertical !== null) {
+    send({"dispatch": "scroll", "direction": direction});
+  }
+}, {passive: true}); // Use passive listener for better performance
+
+
+function sendPageExtents(gridSize) {
+  const w = Math.floor(window.innerWidth / gridSize);
+  const h = Math.floor(window.innerHeight / gridSize);
+  send({"dispatch": "store-extents", "extents": [w, h]});
+}
+
+
+// experiment with a webcomponent
+class PointsEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    const template = document.getElementById('points-editor-template').content.cloneNode(true);
+    this.shadowRoot.appendChild(template);
+
+    this.svg = this.shadowRoot.querySelector('svg');
+    //this.svg.classList.add('prevent-cursor-move');
+
+    this.points = [];
+    this.selectedPoints = [];
+    this.mode = 'polyline'; // or 'polyline', 'polygon'
+    this.initEventListeners();
+    this.selectionBox = null; // Object to store selection box's start and end point
+    this.isPanning = false;
+    this.startPan = { x: 0, y: 0 };
+  }
+  connectedCallback() {
+    if (!this.hasAttribute('data-points')) {
+      this.setAttribute('data-points', '[]');
+    } else {
+      this.updatePoints(JSON.parse(this.getAttribute('data-points')));
+    }
+
+    this.updateViewBoxSize();
+    window.addEventListener('resize', this.updateViewBoxSize.bind(this));
+
+    this.svg.addEventListener('mousedown', this.handleMouseDown.bind(this));
+    window.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    window.addEventListener('mousemove', this.handleMouseMove.bind(this));
+
+    // Mouse enter event listener to add a class
+    this.svg.addEventListener('mousedown', () => {
+      this.classList.add('prevent-cursor-move');
+    });
+
+    // Mouse leave event listener to remove the class
+    this.svg.addEventListener('mouseup', () => {
+      this.classList.remove('prevent-cursor-move');
+    });
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('resize', this.updateViewBoxSize.bind(this));
+  }
+
+  updateViewBoxSize() {
+    // Use getBoundingClientRect() to get the current size of the component
+    const rect = this.svg.getBoundingClientRect();
+    // Update the viewBox attribute to match the component size
+    // You might want to adjust the values slightly if there are borders or paddings
+    this.svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+    // Also, update your currentViewBox object if you're using it for panning
+    this.currentViewBox = { x: 0, y: 0, width: rect.width, height: rect.height };
+  }
+
+  initEventListeners() {
+    this.shadowRoot.getElementById('toggle-mode').addEventListener('click', () => {
+      this.toggleMode();
+    });
+    this.shadowRoot.getElementById('add-point').addEventListener('click', () => {
+      this.addPoint();
+    });
+    this.shadowRoot.getElementById('remove-point').addEventListener('click', () => {
+      this.removePoint();
+    });
+  }
+
+  handleMouseDown(event) {
+    event.preventDefault();
+    if (event.target === this.svg) {
+      this.isPanning = true;
+      this.startPan.x = event.clientX;
+      this.startPan.y = event.clientY;
+    }
+  }
+
+  handleMouseUp(event) {
+    this.isPanning = false;
+  }
+
+  handleMouseMove(event) {
+    event.preventDefault();
+    if (!this.isPanning) return;
+
+    const dx = event.clientX - this.startPan.x;
+    const dy = event.clientY - this.startPan.y;
+
+    // Convert dx and dy to SVG units. This conversion depends on the SVG's current view size and the actual SVG size.
+    const scaleFactorX = 1; //this.currentViewBox.width / this.svg.getBoundingClientRect().width;
+    const scaleFactorY = 1; //this.currentViewBox.height / this.svg.getBoundingClientRect().height;
+
+    this.currentViewBox.x -= dx * scaleFactorX;
+    this.currentViewBox.y -= dy * scaleFactorY;
+
+    this.startPan.x = event.clientX;
+    this.startPan.y = event.clientY;
+
+    this.updateViewBox();
+  }
+
+  updateViewBox() {
+    this.svg.setAttribute('viewBox', `${this.currentViewBox.x} ${this.currentViewBox.y} ${this.currentViewBox.width} ${this.currentViewBox.height}`);
+  }
+
+  toggleMode() {
+    const modes = ['points', 'polyline', 'polygon'];
+    this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
+    this.shadowRoot.getElementById('toggle-mode').textContent = `Mode (${this.mode})`;
+    this.draw();
+  }
+
+  addPoint() {
+    const newPoint = {x: Math.random() * this.svg.clientWidth, y: Math.random() * this.svg.clientHeight};
+    this.points.push(newPoint);
+    this.sendPointsToServer();
+    this.draw();
+  }
+
+  removePoint() {
+    this.points.pop();
+    this.sendPointsToServer();
+    this.draw();
+  }
+
+  updatePoints(points) {
+    this.points = points;
+    this.draw();
+  }
+
+  draw() {
+    //this.svg.innerHTML = ''; // Clear existing content
+    Array.from(this.svg.childNodes).forEach(child => {
+      if (child.id !== 'keep') {
+        this.svg.removeChild(child);
+      }
+    });
+
+    const pathData = this.points.map(p => `${p.x},${p.y}`).join(' ');
+
+    if (this.mode === 'polyline' || this.mode === 'polygon') {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${pathData} ${this.mode === 'polygon' ? 'Z' : ''}`);
+      this.svg.appendChild(path);
+    }
+    this.points.forEach(point => {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', point.x);
+      circle.setAttribute('cy', point.y);
+      circle.setAttribute('r', 5);
+      circle.setAttribute('fill', "blue");
+      circle.setAttribute('cursor', 'move');
+      circle.classList.add('draggable');
+      circle.classList.add('prevent-cursor-move');
+      circle.onmousedown = (e) => this.dragStart(e, point);
+      this.svg.appendChild(circle);
+    });
+  }
+
+  dragStart(e, point) {
+    // Prevent default to avoid unwanted behaviors like text selection
+    e.preventDefault();
+
+    // Get SVG rectangle and viewBox properties
+    const svgRect = this.svg.getBoundingClientRect();
+    const viewBox = this.svg.viewBox.baseVal;
+
+    // Calculate the scale between the SVG's physical dimensions and its viewBox dimensions
+    const scaleX = 1;
+    const scaleY = 1;
+
+    const doDrag = (e) => {
+      // Convert the mouse coordinates to SVG coordinates
+      const svgX = (e.clientX - svgRect.left) * scaleX + viewBox.x;
+      const svgY = (e.clientY - svgRect.top) * scaleY + viewBox.y;
+      // Update the point's position
+      point.x = svgX;
+      point.y = svgY;
+
+      this.draw();
+      this.sendPointsToServer(); // Assume this method sends the updated points to your server
+    };
+
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
+  }
+
+
+  formatPointsForServer() {
+    // Map each point object to a string in the format "[x y]"
+    const formattedPoints = this.points.map(point => `[${point.x} ${point.y}]`);
+    // Join all the formatted points into a single string
+    return `[${formattedPoints.join(' ')}]`;
+  }
+
+  sendPointsToServer() {
+    const id = this.id;
+    const pointsString = this.formatPointsForServer();
+    send({"dispatch": "code", "id": id, "code": pointsString});
+    // Implement AJAX/fetch call here
+  }
+}
+
+window.customElements.define('points-editor', PointsEditor);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Run the function on page load.
+window.addEventListener('load', () => sendPageExtents(globalGridSize));
+
+// Run the function on window resize.
+window.addEventListener('resize', () => sendPageExtents(globalGridSize));
+
 // attach functions to the window so they can be used globally
 window.createEditorInstance = (id) => {
   createEditorInstance(id);
@@ -593,4 +981,11 @@ window.setElementFocus = (id) => {
 
 window.unfocusActiveElement = () => {
   unfocusActiveElement();
+}
+window.send = (body) => {
+  send(body);
+}
+
+window.toggleDragHandle = () => {
+  toggleDragHandle();
 }

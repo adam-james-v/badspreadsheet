@@ -14,10 +14,10 @@
       (apply f args)
       (catch Exception _e nil))))
 
-(defonce event-bus (chan #_(a/sliding-buffer 1)))
+(defonce event-bus (chan (a/sliding-buffer 1)))
 (defonce event-bus-mult (a/mult event-bus))
 (defonce event-publisher (pub event-bus :id))
-(defonce action-bus (chan))
+(defonce action-bus (chan (a/sliding-buffer 1)))
 (defonce action-publisher (pub action-bus :id))
 (defonce cell-counter (atom -1))
 (defonce global-cells (atom {:cells {}}))

@@ -62,3 +62,7 @@
     padding: 8px;
     text-align: left;
 }
+.smooth, .htmx-swapping, .htmx-added {
+  -moz-transition: all 0.5s ease-in-out;
+  transition: all 0.5s ease-in-out;
+}

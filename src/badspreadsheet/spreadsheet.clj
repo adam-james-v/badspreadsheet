@@ -1,5 +1,6 @@
 (ns badspreadsheet.spreadsheet
   (:require
+   [badspreadsheet.components :as bc]
    [badspreadsheet.cells2 :as c]
    [badspreadsheet.server :as server]
    [clojure.core.async :as a
@@ -13,24 +14,19 @@
    [clojure.string :as str]
    [clojure.walk :as walk]
    [huff2.core :as h]
-   [nextjournal.markdown :as md]
-   [nextjournal.markdown.transform :as md.transform]
    [overtone.at-at :as at]
-   [squint.compiler]
-   [svg-clj.elements :as el]
-   [svg-clj.path :as path]
-   [svg-clj.transforms :as tf]
-   [scicloj.kindly.v4.kind :as kind]
-   [scicloj.kindly-advice.v1.api :as kindly-advice]))
+   [squint.compiler]))
 
 (def state-map
-  {:size     20
-   :active   nil
-   :camera   {:location [0 0]}
-   :cursor   {:location [0 0] :size [1 1]}
-   :occupied #{}
-   :entities {}
-   :timers   {}})
+  {:size      20
+   :active    nil
+   :camera    {:location [0 0]}
+   :cursor    {:location [0 0] :size [1 1]}
+   :occupied  #{}
+   :entities  {}
+   :timers    {}
+   :waypoints {}
+   :extents   [100 100]})
 
 (defonce state
   (atom state-map))
@@ -45,38 +41,6 @@
   (reset! entity-counter -1)
   (at/stop-and-reset-pool! runner-pool)
   (reset! state state-map))
-
-;; kinda nice palette
-;; https://colorhunt.co/palette/4d455de96479f5e9cf7db9b6
-;; 4D455D Black
-;; E96479 red
-;; F5E9CF beige
-;; 7DB9B6 teal
-
-;; https://colorhunt.co/palette/ece3ce7390724f6f523a4d39
-;; ECE3CE ;; lighter beige
-;; 739072 ;; green light
-;; 4F6F52 ;; green medium
-;; 3A4D39 ;; green dark
-
-(def black-col "#4D455D")
-(def red-col "#E96479")
-(def beige-col "#F5E9CF")
-(def teal-col "#7DB9B6")
-
-(def beige-l-col "#ECE3CE")
-(def green-l-col "#739072")
-(def green-m-col "#4F6F52")
-(def green-d-col "#3A4D39")
-
-(def lavender-col "#D1CFE2")
-(def violet-col "#736372")
-
-(def pastel-green-col "#D6F6DD")
-(def pastel-purple-col "#DAC4F7")
-(def pastel-red-col "#F4989C")
-(def pastel-brown-col "#EBD2B4")
-(def pastel-blue-col "#ACECF7")
 
 (def grid-style
   [:style
@@ -108,7 +72,8 @@ body {
   {:port       port
    :routes-map {["/" :get] (fn [_] {:body (server/page
                                            (conj server/page-head (deref #'grid-style))
-                                           [[:div#bg.bg-grid
+                                           [bc/points-editor-template
+                                            [:div#bg.bg-grid
                                              {:style {:position "fixed"
                                                       :width    "110vw"
                                                       :height   "110vh"}}
@@ -117,57 +82,7 @@ body {
                                                        :height "110vh"}}
                                               (init-grid-for-get!)]]])})}})
 
-(defn style
-  "Merge a style map into the given element."
-  [[k props & content] style-map]
-  (into [k (merge props style-map)] content))
-
-(defn table
-  [items w]
-  (let [rows (partition-all w items)]
-    (into [:table]
-          (for [row rows]
-            (into [:tr]
-                  (for [item row]
-                    [:td {:style {:padding 0 :margin 0}} item]))))))
-
 (defn- new-entity-id [] (swap! entity-counter inc))
-
-(defn- render-markdown-string
-  [s]
-  (-> s md/parse md.transform/->hiccup (assoc 0 :div.markdown)))
-
-(defn- hiccup?
-  [value]
-  (when (seqable? value)
-    (and (vector? value)
-         (keyword? (first value)))))
-
-(defn render-value
-  [value]
-  (cond
-    (and (vector? value)
-         (not (keyword? (first value)))) (pr-str value)
-    (hiccup? value)                      value
-    :else                                (str value)))
-
-#_(defn- watch-fn
-  [id]
-  (fn [value]
-    (server/broadcast!
-     server-map
-     [:span {:id (format "value-%s" id)} (render-value value)])
-    value))
-
-;; maybe start using kindly here
-(defn render-value2
-  [{:keys [id value display]}]
-  [:span {:id (format "value-%s" id)}
-   (case display
-     :note (if (string? value)
-             (render-markdown-string value)
-             value)
-     (render-value value))])
 
 (defonce previous-render (atom #{}))
 (defn bulk-render-and-broadcast []
@@ -183,12 +98,12 @@ body {
         [_ changed _] (data/diff @previous-render values)
         messages      (select-keys values (keys changed))]
     (when (seq messages)
-      (reset! previous-render values)
+      (reset! previous-render messages)
       (server/broadcast!
        server-map
        (map
-        render-value2
-        (vals messages))))))
+          bc/render-value2
+          (vals messages))))))
 
 (defonce watcher-control-chan (chan))
 (defonce watcher-control-chan-mult (a/mult watcher-control-chan))
@@ -212,7 +127,6 @@ body {
       ;; Message listening loop
       (go-loop []
         (let [[_m ch] (a/alts! [listen-chan control-a])]
-          (println "MESSAGE: " _m)
           (if (= ch listen-chan)
             (do (reset! accumulator true)
                 (recur))
@@ -408,9 +322,7 @@ body {
               :else []))]
     (vec (distinct (collect form)))))
 
-;; this needs to return the cell-id
-(defn c# [entity-id]
-  (or (get-in @state [:entities entity-id :cell]) entity-id))
+(defn c# [id] id)
 
 (defn swap-zero-arity-formula!
   [cell f & args]
@@ -461,10 +373,11 @@ body {
   (let [sharps           (collect-sharp-forms form)
         syms             (mapv (fn [[sym id]] (symbol (format "%s%s" sym id))) sharps)
         smap             (zipmap sharps syms)
-        input-cell-forms (vec (walk/postwalk-replace sharp-forms sharps))]
-    {:fun         (eval `(fn ~syms
-                           (binding [~'*ns* (find-ns '~'user)]
-                             ~(walk/postwalk-replace smap form))))
+        input-cell-forms (vec (walk/postwalk-replace sharp-forms sharps))
+        a                (eval `(binding [~'*ns* (find-ns '~'user)]
+                                  (fn ~syms
+                                    ~(walk/postwalk-replace smap form))))]
+    {:fun         a
      :form        `(fn ~syms ~(walk/postwalk-replace smap form))
      :input-cells (when (seq input-cell-forms) (map eval input-cell-forms))}))
 
@@ -472,197 +385,19 @@ body {
   [form]
   (try
     (formulize form)
-    (catch Exception _e
-      (println "Error formulizing form."))))
+    (catch Exception e
+      (println "Error formulizing form."
+               form
+               (ex-cause e)))))
 
 (defn reset-cell!
   [id form]
-  (let [{:keys [fun _form input-cells]} (maybe-formulize form)]
+  (let [{:keys [fun _form input-cells] :as asdf} (maybe-formulize form)
+        #_#__ (println "RESET CELL: " asdf)]
     (when fun
-      (c/reset-function! id fun input-cells))))
-
-(defn compile-string
-  [clj-str]
-  (-> (squint.compiler/compile-string* clj-str {:core-alias "_sc"}) :body))
-
-(defn wrap-js-in-content-loaded
-  [js-str]
-  (format "document.addEventListener('DOMContentLoaded', function () { %s });" js-str))
-
-(defn clj->js
-  [form]
-  (let [form (walk/postwalk
-              (fn [item]
-                (if (qualified-symbol? item)
-                  (symbol (name item))
-                  item))
-              form)]
-    (-> form pr-str compile-string)))
-
-;; display types:
-;; content -> show the codemirror editor, hide value
-;; note    -> show a markdown render of the content
-;; value   -> show the value render, hide editor
-;; control -> show a control based on the content. Eg. number = slider or an ^v input boxes
-;; none    -> completely hide the cell (not sure what indicator should be left?, maybe just a tiny triangle in top left)
-
-(defn- number-content?
-  [content]
-  (number? (maybe-read-string content)))
-
-(defn- id-info-chip
-  [content display [x y] size]
-  [:div.id-info {:style {:display  (if (= display :none) "auto" "none")
-                         :position "absolute"
-                         :opacity  0.4
-                         :top      y
-                         :left     x
-                         :filter   "drop-shadow(0px 2px 1px rgba(9, 9, 10, 0.65))"
-                         :z-index  "190"}}
-
-   [:div {:style {:position         "relative"
-                  :left             0
-                  :top              0
-                  :width            (* 3  size)
-                  :height           (* 1.5 size)
-                  :line-height      (* 1.5 size)
-                  :border-radius    size
-                  :text-align       "center"
-                  :background-color violet-col
-                  :font-size        10
-                  :font-weight      "bold"
-                  :font-family      "monospace"
-                  :color            lavender-col
-                  :z-index          "191"}}
-    [:span {:style {:display        "inline-block"
-                    :line-height    "normal"
-                    :vertical-align "middle"}} content]]
-   #_[:div {:style {:position         "relative"
-                    :top              (* -0.55 size)
-                    :left             (- (* 1.5 size) (* 0.375 size))
-                    :width            (* 0.75 size)
-                    :height           (* 0.75 size)
-                    :border-radius    3
-                    :background-color violet-col
-                    :transform        "rotate(45deg)"
-                    :z-index          "189"}}]])
-
-(defn editor
-  ([entity] (editor false entity))
-  ([init? {:keys [display location content id size]}]
-   (let [wrap                (if init? wrap-js-in-content-loaded identity)
-         {global-size :size} @state
-         [x y]               location
-         [nx ny]             size
-         w                   (* nx global-size)
-         h                   (* ny global-size)
-         left                (* x global-size)
-         top                 (* y global-size)]
-     [:div {:id (format "entity%s" id)}
-      (id-info-chip (format "ID: %s" id) display
-                    [(+ left (- (- w (* 1.75  global-size)) (* 1.5  global-size)))
-                     (+ top (- (- h (* 0.25  global-size)) (* 1.625  global-size)))]
-                    global-size)
-      [:div {:id    (format "movable%s" id)
-             :style (merge
-                     {:box-sizing       "border-box"
-                      :overflow         "hidden"
-                      :position         "absolute"
-                      :left             left
-                      :top              top
-                      :width            w
-                      :height           h}
-                     (when (#{:none :input :value} display)
-                       {:background-color "rgba(255,255,255,0.2);"})
-                     (when (= display :content)
-                       {:overflow "visible"
-                        :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
-       [:div {:id    id
-              :style {:display (if (= display :content) "auto" "none")
-                      :height  (* ny global-size)}}
-        [:hiccup/raw-html content]]
-       [:div {:style {:display (if (#{:none :content} display) "none" "auto")}}
-        [:span {:id (format "value-%s" id)}
-         (let [value (c/value (c# id))]
-           (if (not (hiccup? value))
-             ((if (= display :note)
-                #(render-markdown-string (str %))
-                str)
-              value)
-             value))]]]
-      ;; scripts
-      [:<>
-       (when (and
-              (= display :control)
-              (number-content? content))
-         [:script ((if init? wrap-js-in-content-loaded identity) (clj->js `(makeNumberInput ~id)))])
-       (when (= display :content)
-         [:script (wrap (clj->js `(createEditorInstance ~id)))])
-       [:script (wrap (format "attachEntityListeners('movable%s');" id))]]])))
-
-(defn- cursor-icon
-  [w h]
-  (let [t      5
-        l      6
-        st     1
-        pts    [[0 0]
-                [0 (- l)] [(* -0.5 t) (- (+ l (* 0.5 t)))] [(- t) (- l)]
-                [(- t) 0] [0 t]
-                [l t] [(+ l (* 0.5 t)) (* 0.5 t)] [l 0]]
-        corner (-> (path/polygon pts)
-                   (tf/style {:stroke       green-d-col
-                              :stroke-width st
-                              :fill         green-m-col}))]
-    [:svg
-     {:width  (+ w (* (+ st t) 2))
-      :height (+ h (* (+ st t) 2))
-      :xmlns  "http://www.w3.org/2000/svg"}
-     (-> (el/g
-          (-> (el/rect w h)
-              (tf/translate [(* w 0.5) (* h 0.5)])
-              (tf/style {:stroke green-l-col :fill "none"}))
-          (-> (el/rect (+ w t (* st 0.5)) (+ h t (* st 0.5)))
-              (tf/translate [(* w 0.5) (* h 0.5)])
-              (tf/style {:stroke green-l-col :fill "none" :stroke-width 1 :opacity 1}))
-          (-> (el/g
-               #_(-> corner (tf/rotate  90) (tf/translate [0 0]))
-               (-> corner (tf/rotate 180) (tf/translate [w 0]))
-               #_(-> corner (tf/rotate 270) (tf/translate [w h]))
-               (-> corner (tf/rotate   0) (tf/translate [0 h])))
-              (tf/style {:filter "drop-shadow(0px 0.5px 0.25px rgba(9, 9, 10, 0.35))"})))
-         (tf/translate [(+ t st) (+ t st)]))]))
-
-(defn cursor
-  [{:keys [location size]}]
-  (let [global-size (:size @state)
-        [x y]       location
-        [nx ny]     size]
-    [:<>
-     [:div#insert-target {:hx-swap-oob "afterend"}]
-     [:div#cursor.fade-in
-      {:style {:pointer-events "none"}}
-      (let [pos-indicator-str      (format "[%s %s]" x y)
-            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
-        [:div {:style {:position "absolute"
-                       :left     (* (- x approx-pos-indicator-w) global-size)
-                       :top      (* (dec y) global-size)}}
-         pos-indicator-str])
-      (let [pos-indicator-str (format "[%s %s]" (+ x nx) (+ y ny))]
-        [:div {:style {:position "absolute"
-                       :left     (* (+ x nx) global-size)
-                       :top      (* (+ y ny) global-size)}}
-         pos-indicator-str])
-      [:div {:style {:box-sizing     "border-box"
-                     :border-radius  4
-                     :position       "absolute"
-                     :z-index        "90"
-                     :pointer-events "none"
-                     :margin         -6
-                     :left           (* x global-size)
-                     :top            (* y global-size)
-                     :width          (* nx global-size)
-                     :height         (* ny global-size)}}
-       (cursor-icon (* nx global-size) (* ny global-size))]]]))
+      (c/reset-function! id fun input-cells))
+    #_(doseq [input input-cells]
+      (c/touch! input))))
 
 (defn grid-square
   [x y size]
@@ -679,23 +414,22 @@ body {
   []
   (into [:<>]
         (for [[_ entity] (:entities @state)]
-          (editor entity))))
+          (bc/editor entity @state))))
 
 (defn- handle-entity
   ([req] (handle-entity req false))
-  ([{:keys [id code]} init?]
-   (let [code         (if init? "" code) ;; intentionally initialize entities with empty code for loading purposes
-         id           (if (string? id) (parse-long id) id)
-         form         (maybe-read-string code)
-         cell-id      (get-in @state [:entities id :cell])
-         prev-content (get-in @state [:entities id :content])]
-     (when (or
-            init?
-            (= code "")
-            (and form
-                 #_(not= code prev-content)))
-       (swap! state assoc-in [:entities id :content] code)
-       (reset-cell! cell-id form)))))
+  ([{:keys [id code] :as asdf} init?]
+   (when id
+     (let [code    (if init? "" code) ;; intentionally initialize entities with empty code for loading purposes
+           id      (if (string? id) (parse-long id) id)
+           form    (maybe-read-string code)
+           cell-id (get-in @state [:entities id :cell])]
+       (when (or
+              init?
+              (= code "")
+              form)
+         (swap! state assoc-in [:entities id :content] code)
+         (reset-cell! cell-id form))))))
 
 (defmethod server/data-handler :code
   [req]
@@ -742,7 +476,7 @@ body {
            server-map
            [:div#insert-target
             {:hx-swap-oob "afterend"}
-            (editor (get-in @state [:entities new-id]))]))))))
+            (bc/editor (get-in @state [:entities new-id]) @state)]))))))
 
 (defn read-edn-file [file-path]
   (with-open [rdr (io/reader file-path)]
@@ -781,14 +515,18 @@ body {
 
 (defmethod server/data-handler :make-active
   [{:keys [id]}]
-  (let [id (read-string (str/replace id #"movable" ""))
-        entity (get-in @state [:entities id])]
+  (let [id         (read-string (str/replace id #"movable" ""))
+        entity     (get-in @state [:entities id])
+        cursor-map {:location (:location entity)
+                    :size     (:size entity)}]
+    #_#_
     (swap! state assoc
            :active id
-           :cursor (select-keys entity [:location :size]))
+           :cursor cursor-map
+           #_(select-keys entity [:location :size]))
     (server/broadcast!
      server-map
-     (cursor (get-in @state [:entities id])))))
+     (bc/cursor cursor-map @state))))
 
 (defn- move-active-entity!
   [direction]
@@ -801,7 +539,7 @@ body {
           (let [entity (get-in @state [:entities active])]
             (server/broadcast!
              server-map
-             [:<> (editor entity) (cursor entity)])))))))
+             [:<> (bc/editor entity @state) (bc/cursor entity @state)])))))))
 
 (defn- resize-active-entity!
   [direction]
@@ -814,7 +552,7 @@ body {
           (let [entity (get-in @state [:entities active])]
             (server/broadcast!
              server-map
-             [:<> (editor entity) (cursor entity)])))))))
+             [:<> (bc/editor entity @state) (bc/cursor entity @state)])))))))
 
 (defn- location-in-entity?
   [loc entity]
@@ -826,11 +564,47 @@ body {
   (let [{:keys [entities]} @state]
     (first (filter (partial location-in-entity? loc) (vals entities)))))
 
+(defn move-camera!
+  [direction]
+  (let [{kursor   :cursor
+         camera   :camera
+         entities :entities} @state
+        camera-loc           (:location camera)
+        new-loc              (mapv + camera-loc ({:left [-1 0] :right [1 0] :up [0 -1] :down [0 1]} direction))]
+    (swap! state assoc-in [:camera :location] new-loc)
+    (server/broadcast!
+     server-map
+     (into [:<> (bc/cursor kursor @state)] (map #(bc/editor % @state) (vals entities))))))
+
+(defn set-camera!
+  [new-loc]
+  (let [{kursor   :cursor
+         entities :entities :as s} @state]
+    (swap! state assoc-in [:camera :location] new-loc)
+    (server/broadcast!
+     server-map
+     (into [:<> (bc/cursor kursor s)] (map #(bc/editor % s) (vals entities))))))
+
+(defn- camera-move
+  "Determines if the camera should move based on the cursor's new position.
+   Returns the direction of movement if required."
+  [[cursor-x cursor-y] [size-x size-y]]
+  (let [{:keys [camera extents]} @state
+        [camera-x camera-y]      (:location camera)
+        [extent-x extent-y]      extents
+        direction                (cond
+                                   (< cursor-x camera-x)                                    :left
+                                   (> cursor-x #_(+ cursor-x size-x) (+ extent-x camera-x)) :right
+                                   (< cursor-y camera-y)                                    :up
+                                   (> cursor-y #_(+ cursor-y size-y) (+ extent-y camera-y)) :down)]
+    direction))
+
 (defn- move-cursor!
   [direction-or-location]
-  (let [{occupied :occupied kursor :cursor} @state
-        {:keys [location size]}             kursor
-        was-over-entity?                    (occupied location)]
+  (let [{occupied :occupied
+         kursor   :cursor}      @state
+        {:keys [location size]} kursor
+        was-over-entity?        (occupied location)]
     (when location
       (let [[sx sy]    size
             new-loc    (if (keyword? direction-or-location)
@@ -844,7 +618,7 @@ body {
             new-cursor (if new-entity
                          (select-keys new-entity [:location :size])
                          {:location new-loc
-                          :size     (if was-over-entity? [1 1] size)})]
+                          :size     size #_ (if was-over-entity? [1 1] size)})]
         (dosync
          (swap! state assoc
                 :cursor new-cursor
@@ -853,12 +627,15 @@ body {
            (server/broadcast!
             server-map
             [:div#insert-target [:script "unfocusActiveElement();"]]))
+         (when-let [direction (camera-move new-loc size)]
+           (println "CAMERA MOVE REQUIRED.")
+           (move-camera! direction))
          (server/broadcast!
           server-map
-          (cursor (:cursor @state))))))))
+          (bc/cursor (:cursor @state) @state)))))))
 
 (defn- move-entities-in-cursor!
-  [direction]
+  [direction-or-location]
   (let [{entities :entities occupied :occupied kursor :cursor} @state
         entities                                               (vals entities)
         in-cursor                                              (entity-covers kursor)]
@@ -867,13 +644,38 @@ body {
                               (and (in-cursor location)
                                    (in-cursor (mapv + location (map dec size))))) entities)
             movefn! (fn [{:keys [location id]}]
-                      (let [new-loc (mapv + location ({:left [-1 0] :right [1 0] :up [0 -1] :down [0 1]} direction))]
+                      (let [new-loc (if (keyword? direction-or-location)
+                                      (mapv + location ({:left  [-1  0]
+                                                         :right [ 1  0]
+                                                         :up    [ 0 -1]
+                                                         :down  [ 0  1]} direction-or-location))
+                                      direction-or-location)]
                         (move-entity! new-loc id)))
             moved   (mapv movefn! to-move)]
-        (move-cursor! direction)
+        (move-cursor! direction-or-location)
         (server/broadcast!
          server-map
-         (into [:<>] (map editor moved)))))))
+         (into [:<>] (map #(bc/editor % @state) moved)))))))
+
+(defn- delete-entities-in-cursor!
+  []
+  (let [{entities :entities occupied :occupied kursor :cursor} @state
+        entities                                               (vals entities)
+        in-cursor                                              (entity-covers kursor)]
+    (when (some in-cursor occupied)
+      (let [to-delete (filter (fn [{:keys [location size]}]
+                                  (and (in-cursor location)
+                                       (in-cursor (mapv + location (map dec size))))) entities)
+            deletefn! (fn [{:keys [id]}]
+                        (swap! state update :entities (fn [m] (dissoc m id))))]
+        (mapv deletefn! to-delete)
+        (server/broadcast!
+         server-map
+         (into [:<>]
+               (map (fn [{:keys [id]}]
+                      [:div {:id          (format "entity%s" id)
+                             :hx-swap-oob "outerHTML"}])
+                    to-delete)))))))
 
 (defn- resize-cursor!
   [direction-or-size]
@@ -888,16 +690,37 @@ body {
           (swap! state assoc-in [:cursor :size] new-size)
           (server/broadcast!
            server-map
-           (cursor (:cursor @state))))))))
+           (bc/cursor (:cursor @state) @state)))))))
 
 (defn- toggle-active-display!
   [direction]
-  (let [{:keys [active]} @state]
+  (let [{:keys [cursor active]} @state]
     (when active
       (swap! state update-in [:entities active] #(cycle-entity-display % direction))
       (server/broadcast!
        server-map
-       (editor (get-in @state [:entities active]))))))
+       [:<>
+        (bc/cursor cursor @state)
+        (bc/editor (get-in @state [:entities active]) @state)]))))
+
+(defn- cells-by-location
+  []
+  (->> @state :entities vals (group-by :location)))
+
+(defn- toggle-displays-in-area!
+  [direction]
+  (let [{:keys [cursor active]} @state
+        locs (entity-covers cursor)
+        cells (cells-by-location)
+        in-cursor (map :id (mapcat #(get cells %) locs))]
+    (if active
+      (toggle-active-display! direction)
+      (when (seq in-cursor)
+        (doseq [active in-cursor]
+          (swap! state update-in [:entities active] #(cycle-entity-display % direction))
+          (server/broadcast!
+           server-map
+           (bc/editor (get-in @state [:entities active]) @state)))))))
 
 (defn- create-entity!
   []
@@ -909,7 +732,7 @@ body {
          server-map
          [:div#insert-target
           {:hx-swap-oob "afterend"}
-          (editor (get-in @state [:entities entity-id]))])))))
+          (bc/editor (get-in @state [:entities entity-id]) @state)])))))
 
 (defn- delete-entity!
   []
@@ -942,14 +765,20 @@ body {
         {:hx-swap-oob "afterend"}
         (self-removing-script (format "setElementFocus('%s');" active))]))))
 
+(defmethod server/data-handler :toggle-display
+  [{:keys [direction]}]
+  (toggle-displays-in-area! (keyword direction)))
+
 (defmethod server/data-handler :keypress
   [{keys-pressed :keys}]
   (fix-occupied!)
   (case (vec (rest keys-pressed))
     ["enter"] (do (create-entity!) (focus-active-entity!))
 
-    ["shift" "up"]   (toggle-active-display! :up)
-    ["shift" "down"] (toggle-active-display! :down)
+    ["shift" "up"]   (move-camera! :up) #_(toggle-displays-in-area! :up)
+    ["shift" "down"] (move-camera! :down) #_(toggle-displays-in-area! :down)
+    ["shift" "left"]  (move-camera! :left)
+    ["shift" "right"] (move-camera! :right)
 
     ["ctrl" "n"] (create-entity!)
     ["ctrl" "d"] (delete-entity!)
@@ -995,16 +824,58 @@ body {
 
     ["face-down"]  (focus-active-entity!)
     ["face-right"] (unfocus-active-entity!)
+
     ;; default
     (println "UNHANDLED BUTTONS: " buttons)))
 
 (defmethod server/data-handler :mouse-event
-  [{:keys [location size]}]
+  [{:keys [location size dragging]}]
   (let [[_ sx sy] size
         [_ x y] location]
-    (when (every? #(> % 1) [sx sy])
+    (when (every? pos? [sx sy])
       (resize-cursor! [sx sy]))
+    (if dragging
+      (move-entities-in-cursor! [x y])
+      (move-cursor! [x y]))))
+
+(defmethod server/data-handler :store-extents
+  [{:keys [extents]}]
+  (let [[_ w h] extents]
+    (swap! state assoc :extents [w h])))
+
+(defmethod server/data-handler :scroll
+  [{:keys [direction]}]
+  (let [{:keys [horizontal vertical]} direction]
+    (move-camera! (keyword (or horizontal vertical)))))
+
+(defmethod server/data-handler :set-camera
+  [{:keys [position]}]
+  (let [[_ x y] position]
+    (set-camera! [x y])))
+
+(defmethod server/data-handler :move-cursor
+  [{:keys [position]}]
+  (let [[_ x y] position]
     (move-cursor! [x y])))
+
+(defn toggle-waypoint!
+  [pos label]
+  (if (contains? (:waypoints @state) pos)
+    (swap! state update :waypoints (fn [m] (dissoc m pos)))
+    (swap! state assoc-in [:waypoints pos]
+           {:position pos
+            :label    label
+            :colour   (bc/random-waypoint-color)}))
+  (server/broadcast! server-map (bc/cursor (:cursor @state) @state)))
+
+(defmethod server/data-handler :toggle-waypoint
+  [{:keys [position label]}]
+  (let [[_ x y] position]
+    (toggle-waypoint! [x y] label)))
+
+(defmethod server/data-handler :delete
+  [_]
+  (delete-entities-in-cursor!))
 
 (defn start! []
   (server/serve! (deref #'server-map)))
@@ -1014,8 +885,8 @@ body {
   (let [state @state]
     [:<>
      (into [:<>] (for [[_ entity] (:entities state)]
-                   (editor :init entity)))
-     (cursor (:cursor state))
-     [:script (wrap-js-in-content-loaded "initKeyPressListener();")]
-     [:script (wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
-     [:script (wrap-js-in-content-loaded "initGamepadListener();")]]))
+                   (bc/editor :init entity state)))
+     (bc/cursor (:cursor state) state)
+     [:script (bc/wrap-js-in-content-loaded "initKeyPressListener();")]
+     [:script (bc/wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
+     [:script (bc/wrap-js-in-content-loaded "initGamepadListener();")]]))
