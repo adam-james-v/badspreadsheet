@@ -72,6 +72,25 @@ function handleEditorUpdate(update) {
   }
 }
 
+function sendEditorCode(view) {
+  // Fetch the code from the editor
+  let code = view.state.doc.toString();
+
+  // Get the ID of the parent element
+  let editorElement = view.dom;
+  let id = editorElement.parentElement.id;
+  let dispatch = "code";
+
+  // Emit a GET request to the endpoint with the ID
+  fetch(`/data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ dispatch, id, code })
+  })
+}
+
 const debouncedUpdateListener = debounce(handleEditorUpdate, 300); // Adjust the delay as needed
 
 function unfocusActiveElement() {
@@ -86,10 +105,11 @@ let extensions = [
   drawSelection(),
   keymap.of([
     { key: "Escape", run: (view) => { view.dom.blur(); return true; } },
+    { key: "Alt-Enter", run: (view) => { sendEditorCode(view) } },
     ...complete_keymap
   ]),
-  ...default_extensions,
-  EditorView.updateListener.of(debouncedUpdateListener)
+  ...default_extensions
+  //EditorView.updateListener.of(debouncedUpdateListener)
 ];
 
 function createEditorInstance(elementID) {
@@ -211,6 +231,11 @@ function toggleDragHandle() {
   dragHandleActive = !dragHandleActive;
 }
 
+function getGridSize() {
+  const cursorElement = document.getElementById('cursor');
+  return Number(cursorElement.getAttribute("grid-size"));
+}
+
 function getCameraLocation() {
   const cursorElement = document.getElementById('cursor');
   const cameraLocation = cursorElement.getAttribute('camera-location');
@@ -229,6 +254,11 @@ function getCursorSize() {
   return cursorSize.split(',').map(Number);
 }
 
+function getActiveElementID() {
+  const cursorElement = document.getElementById('cursor');
+  return cursorElement.getAttribute('active-element-id');
+}
+
 function addVectors(v1, v2) {
   if (v1.length !== v2.length) {
     throw new Error('Vectors must be of the same length');
@@ -243,7 +273,53 @@ function subtractVectors(v1, v2) {
   return v1.map((val, index) => val - v2[index]);
 }
 
+let bg = document.getElementById('bg');
+
 let globalGridSize = 20;
+
+function clickGridLocation(e) {
+  const gridSize = getGridSize();
+  const rect = bg.getBoundingClientRect();
+  const x = e.clientX - rect.left; // x position within the element.
+  const y = e.clientY - rect.top;  // y position within the element.
+  let cameraLoc = getCameraLocation();
+  const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+  const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+  return { x: gridX, y: gridY };
+}
+
+function clickIsInCursor(e) {
+  let clickLoc = clickGridLocation(e);
+  let cursorLoc = getCursorLocation(e);
+  let cursorSize = getCursorSize(e);
+
+  let x1 = cursorLoc[0];
+  let x2 = cursorLoc[0] + cursorSize[0];
+  let y1 = cursorLoc[1];
+  let y2 = cursorLoc[1] + cursorSize[1];
+  return ( clickLoc.x >= x1 && clickLoc.x <= x2 ) && ( clickLoc.y >= y1 && clickLoc.y <= y2 );
+}
+
+function elementIsActive() {
+  return getActiveElementID() !== null
+}
+
+function hasPreventMove(el) {
+  const cl = el.getAttribute("class");
+  return cl !== null && cl.includes("prevent-cursor-move");
+}
+
+function isDragHandle(el) {
+  const id = el.getAttribute("id");
+  return id !== null && id.includes("drag-handle");
+}
+
+// e.target.hasAttribute("onclick")
+// e.target.tagName === "BUTTON"
+function shouldPreventMove(e) {
+  return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
+}
+
 function initMouseEventsListener(gridSize) {
   globalGridSize = gridSize;
   let lastGridX = -1;
@@ -256,9 +332,10 @@ function initMouseEventsListener(gridSize) {
 
   document.addEventListener('mousedown', (e) => {
     // Ignore clicks on buttons and other specified elements
-    if (e.target.className.includes('prevent-cursor-move') && !dragHandleActive) {
-      return;
-    }
+    //if (hasPreventMove(e.target) && !dragHandleActive) { return };
+
+    if (shouldPreventMove(e)) { return };
+
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left; // x position within the element.
     const y = e.clientY - rect.top;  // y position within the element.
@@ -279,6 +356,7 @@ function initMouseEventsListener(gridSize) {
     lastGridX = startLocX;
     lastGridY = startLocY;
     mouseDown = true;
+    dragging = isDragHandle(e.target);
   });
 
   document.addEventListener('mouseup', (e) => {
@@ -286,16 +364,12 @@ function initMouseEventsListener(gridSize) {
     dragging = false;
     dragHandleActive = false;
     // Ignore clicks on buttons and other specified elements
-    if (e.target.className.includes('prevent-cursor-move')) {
-      return;
-    }
+    if (shouldPreventMove(e)) { return }
   });
 
   document.addEventListener('click', (e) => {
     // Ignore clicks on buttons and other specified elements
-    if (e.target.className.includes('prevent-cursor-move')) {
-      return;
-    }
+    if (shouldPreventMove(e)) { return }
 
     if (!dragging) {
       // Handle click event here, as there was no mouse movement
@@ -304,7 +378,7 @@ function initMouseEventsListener(gridSize) {
   });
 
   document.addEventListener('mousemove', (e) => {
-    if (!mouseDown || e.target.className.includes('prevent-cursor-move')) return; // Do nothing if the mouse is not pressed down
+    if (!mouseDown || ( !dragging && shouldPreventMove(e) )) return; // Do nothing if the mouse is not pressed down
 
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left; // x position within the element.
@@ -316,10 +390,8 @@ function initMouseEventsListener(gridSize) {
     let startSizeX = startSize[0];
     let startSizeY = startSize[1];
 
-    if (dragHandleActive &&
-        !e.target.className.includes('prevent-cursor-move') &&
+    if (dragging &&
         (gridX !== lastGridX || gridY !== lastGridY)) {
-      dragging = true; // Mouse is moving while pressed down, indicating a drag
       lastGridX = gridX;
       lastGridY = gridY;
       let sizeX = (gridX - startLocX + 1);
@@ -329,8 +401,7 @@ function initMouseEventsListener(gridSize) {
       // Send data to the server in the 'dragging' state
       sendCursorData(location, size);
     }
-    if (!dragHandleActive &&
-        !e.target.className.includes('prevent-cursor-move') &&
+    if (!dragging &&
         (gridX !== lastGridX || gridY !== lastGridY)) {
       dragging = false; // Mouse is moving while pressed down, indicating a drag
       lastGridX = gridX;
@@ -346,9 +417,10 @@ function initMouseEventsListener(gridSize) {
 
   document.addEventListener('dblclick', (e) => {
     // Ignore clicks on buttons and other specified elements
-    if (e.target.closest('.prevent-cursor-move')) {
+    if (shouldPreventMove(e)) {
       return;
     }
+
     let cameraLoc = getCameraLocation();
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -356,8 +428,8 @@ function initMouseEventsListener(gridSize) {
     const gridX = Math.floor(x / gridSize) + cameraLoc[0];
     const gridY = Math.floor(y / gridSize) + cameraLoc[1];
 
-    // Reset size to 1x1 on double-click and send data to the server
-    sendCursorData([gridX, gridY], [1, 1]);
+    // Reset size to 7x3 on double-click and send data to the server
+    sendCursorData([gridX, gridY], [7, 3]);
   });
 
   function sendCursorData(location, size) {
@@ -720,12 +792,13 @@ class PointsEditor extends HTMLElement {
     //this.svg.classList.add('prevent-cursor-move');
 
     this.points = [];
-    this.selectedPoints = [];
     this.mode = 'polyline'; // or 'polyline', 'polygon'
     this.initEventListeners();
-    this.selectionBox = null; // Object to store selection box's start and end point
+    //this.selectedPoints = [];
+    //this.selectionBox = null; // Object to store selection box's start and end point
     this.isPanning = false;
     this.startPan = { x: 0, y: 0 };
+    console.log("points-editor available");
   }
   connectedCallback() {
     if (!this.hasAttribute('data-points')) {
@@ -922,15 +995,338 @@ window.customElements.define('points-editor', PointsEditor);
 
 
 
+// touch tilt controller
+class TouchTiltControl extends HTMLElement {
+  constructor() {
+    super();
+    this.x = 0;
+    this.y = 0;
+    this.isPressed = false;
+    this.lastClickTime = 0;
+    this.initialized = false;
+    this.initialGamma = 0;
+    this.initialBeta = 0;
+    this.lastOrientationEventTime = 0;
+    this.orientationEventThreshold = 100;
+  }
+
+  connectedCallback() {
+    this.style.display = 'flex';
+    this.style.alignItems = 'center'; // Center content vertically
+    this.style.justifyContent = 'center'; // Center content horizontally
+    this.style.width = '100%';
+    this.style.height = '100%';
+    this.style.display = 'block';
+    this.style.backgroundColor = 'honeydew'; // Customize as needed
+
+    // Create and append the display element
+    this.display = document.createElement('div');
+    this.display.style.pointerEvents = 'none';
+    this.display.style.userSelect = 'none';
+    this.display.textContent = `[${this.x} ${this.y}]`; // Initialize text content
+    this.appendChild(this.display);
+
+    // Event listeners
+    this.addEventListener('mousedown', this.handleMouseDown.bind(this));
+    this.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    this.addEventListener('mousemove', this.handleMouseMove.bind(this));
+    this.addEventListener('touchstart', this.handleTouchStart.bind(this));
+    this.addEventListener('touchend', this.handleTouchEnd.bind(this));
+    this.addEventListener('click', this.handleDoubleClick.bind(this));
+    this.addEventListener('touchend', this.handleDoubleTap.bind(this));
+    //window.addEventListener('deviceorientation', this.handleOrientation.bind(this));
+
+    // Create a button to request permissions
+    this.permissionButton = document.createElement('button');
+    this.permissionButton.textContent = 'Enable Orientation';
+    // DeviceOrientationEvent.requestPermission() MUST fire off of click or touchend! touchstart doesn't work.. Holy shit
+    this.permissionButton.addEventListener('touchend', () => {
+      this.permissionButton.style.backgroundColor = 'skyblue';
+      this.requestDeviceOrientationPermission();
+    });
+
+    // Add the button to the component if permission is needed
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      this.appendChild(this.permissionButton);
+    } else {
+      // If no permission is needed, directly add the event listener
+      window.addEventListener('deviceorientation', this.handleOrientation.bind(this));
+    }
+  }
+
+  // Ensure to clean up the event listeners on disconnect
+  disconnectedCallback() {
+    this.removeEventListener('mousedown', this.handleMouseDown);
+    this.removeEventListener('mouseup', this.handleMouseUp);
+    this.removeEventListener('mousemove', this.handleMouseMove);
+    this.removeEventListener('touchstart', this.handleTouchStart);
+    this.removeEventListener('touchend', this.handleTouchEnd);
+    window.removeEventListener('deviceorientation', this.handleOrientation);
+  }
+
+  requestDeviceOrientationPermission() {
+    // Check if DeviceOrientationEvent is available
+    this.permissionButton.textContent = 'Enable Orientation PENDING!';
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then(permissionState => {
+          this.permissionButton.textContent = `Permission: ${permissionState}`;
+          if (permissionState === 'granted') {
+            window.addEventListener('deviceorientation', this.handleOrientation.bind(this));
+            this.permissionButton.remove(); // Optionally remove the button after permission is granted
+          } else {
+            console.error('DeviceOrientation permission not granted');
+            this.permissionButton.textContent = 'Enable Orientation ERROR!';
+            this.sendValues2();
+          }
+        })
+        .catch(console.error);
+    } else {
+      // Automatically add event listener if permission is not required (non-iOS 13+ devices)
+      window.addEventListener('deviceorientation', this.handleOrientation.bind(this));
+      this.permissionButton.remove(); // Optionally remove the button after permission is granted
+    }
+  }
+
+  handleMouseDown(event) {
+    this.isPressed = true;
+    this.startX = event.clientX;
+    this.startY = event.clientY;
+  }
+
+  handleMouseUp() {
+    this.isPressed = false;
+  }
+
+  handleMouseMove(event) {
+    if (!this.isPressed) return;
+    this.x += event.clientX - this.startX;
+    this.y += event.clientY - this.startY;
+    this.startX = event.clientX;
+    this.startY = event.clientY;
+    this.sendValues();
+  }
+
+  handleTouchStart(event) {
+    this.isPressed = true;
+  }
+
+  handleTouchEnd() {
+    this.initialized = false;
+    this.isPressed = false;
+  }
+
+  // Handle double click
+  handleDoubleClick() {
+    const currentTime = new Date().getTime();
+    if (currentTime - this.lastClickTime < 300) { // 300ms threshold for double-click
+      this.resetValues();
+    }
+    this.lastClickTime = currentTime;
+  }
+
+  // Handle double tap - we'll also use 'touchend' event here
+  handleDoubleTap(event) {
+    // Prevent double firing with click events on mobile
+    event.preventDefault();
+
+    const currentTime = new Date().getTime();
+    if (currentTime - this.lastClickTime < 300) { // 300ms threshold for double-tap
+      this.resetValues();
+    }
+    this.lastClickTime = currentTime;
+  }
+
+  handleOrientation(event) {
+    if (!this.isPressed) return;
+
+    if (!this.initialized) {
+      this.initialized = true;
+      this.initialGamma = event.gamma;
+      this.initialBeta = event.beta;
+      return
+    }
+
+    const currentTime = new Date().getTime();
+    if (currentTime - this.lastOrientationEventTime > this.orientationEventThreshold) {
+      // Proceed only if the threshold time has passed since the last event
+      const gamma = event.gamma; // Left to right
+      const beta = event.beta;  // Front to back
+
+      this.x += gamma - initialGamma;
+      this.y += beta - initialBeta;
+      this.sendValues();
+
+      this.lastOrientationEventTime = currentTime; // Update the time of the last event handled
+    }
+  }
+
+  resetValues() {
+    this.x = 0;
+    this.y = 0;
+    this.sendValues(); // Update display and optionally send values to backend
+  }
+
+  sendValues2() {
+    // Update the display element whenever values change
+    this.display.textContent = `[${this.x.toFixed(2)} ${this.y.toFixed(2)}]`; // Use toFixed(2) for cleaner display
+    const id = this.id;
+    send({"dispatch": "asdf",
+          "id": id,
+          "code": `{:control :touch-tilt-control :x ${this.x} :y ${this.y} }` });
+  }
+
+  sendValues() {
+    // Update the display element whenever values change
+    this.display.textContent = `[${this.x.toFixed(2)} ${this.y.toFixed(2)}]`; // Use toFixed(2) for cleaner display
+    const id = this.id;
+    send({"dispatch": "code",
+          "id": id,
+          "code": `{:control :touch-tilt-control :x ${this.x} :y ${this.y} }` });
+  }
+}
+
+window.customElements.define('touch-tilt-control', TouchTiltControl);
 
 
 
 
+// Drawing canvas webcomponent
+
+class DrawingCanvas extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    const canvas = document.createElement('canvas');
+    canvas.width = 500;
+    canvas.height = 500;
+    canvas.style.border = '1px solid black';
+    this.canvas = canvas;
+
+    const button = document.createElement('button');
+    button.textContent = 'Clear Points';
+
+    this.shadowRoot.append(canvas, button);
+
+    const ctx = canvas.getContext('2d');
+    this.ctx = ctx;
+    let isDrawing = false;
+    let lastX = 0;  // Last drawn X position
+    let lastY = 0;  // Last drawn Y position
+    const minRadius = 15;  // Minimum radius to draw next line segment
+    this.points = [];  // Array to store points
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDrawing = true;
+      ctx.beginPath();
+      ctx.moveTo(e.offsetX, e.offsetY);
+      lastX = e.offsetX;
+      lastY = e.offsetY;
+      // Store the initial point and call send
+      this.points.push({x: lastX, y: lastY});
+      this.send({x: lastX, y: lastY});
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (isDrawing) {
+        let dx = e.offsetX - lastX;
+        let dy = e.offsetY - lastY;
+        if (Math.sqrt(dx * dx + dy * dy) >= minRadius) {
+          ctx.lineTo(e.offsetX, e.offsetY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(e.offsetX, e.offsetY);
+          lastX = e.offsetX;
+          lastY = e.offsetY;
+          // Store the point and call send
+          this.points.push({x: lastX, y: lastY});
+          this.sendValues();
+        }
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isDrawing = false;
+    });
+
+    button.addEventListener('click', () => {
+      this.clearPoints();
+    });
+  }
+
+  connectedCallback() {
+    if (!this.hasAttribute('data-points')) {
+      this.setAttribute('data-points', '[]');
+    } else {
+      this.points = JSON.parse(this.getAttribute('data-points'));
+      this.drawDataPoints();
+    }
+    this.style.display = 'flex';
+    this.style.alignItems = 'center'; // Center content vertically
+    this.style.justifyContent = 'center'; // Center content horizontally
+    this.style.width = '100%';
+    this.style.height = '100%';
+    this.style.display = 'block';
+    this.style.backgroundColor = 'honeydew'; // Customize as needed
+  }
+
+  drawDataPoints() {
+    this.points.forEach((point, index) => {
+      if (index === 0) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(point.x, point.y);
+      } else {
+        this.ctx.lineTo(point.x, point.y);
+        this.ctx.stroke();
+      }
+    });
+    if (this.points.length > 0) {
+      this.ctx.beginPath();  // Start a new path for subsequent drawings
+      this.ctx.moveTo(this.points[this.points.length - 1].x, this.points[this.points.length - 1].y);
+    }
+  }
+
+  markPoints(ctx) {
+    // Draw blue circles at each stored point
+    this.points.forEach(point => {
+      ctx.fillStyle = 'blue';
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+      ctx.fill();
+    });
+  }
+
+  clearPoints() {
+    // Draw blue circles at each stored point
+    this.points = [];
+    this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+    this.sendValues();
+  }
 
 
+  send(data) {
+    console.log("Sending data to server:", data);
+    // Actual implementation of sending data to server should be here
+  }
+
+  formatPointsForServer() {
+    // Map each point object to a string in the format "[x y]"
+    const formattedPoints = this.points.map(point => `[${point.x} ${point.y}]`);
+    // Join all the formatted points into a single string
+    return `[${formattedPoints.join(' ')}]`;
+  }
+
+  sendValues() {
+    const pointsString = this.formatPointsForServer();
+    const id = this.id;
+    send({"dispatch": "code",
+          "id": id,
+          "code": `{:control :drawing-canvas :pts ${pointsString} }` });
+  }
+}
 
 
-
+window.customElements.define('drawing-canvas', DrawingCanvas);
 
 
 

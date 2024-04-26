@@ -1,8 +1,10 @@
 (ns badspreadsheet.spreadsheet
   (:require
+   [badspreadsheet.user :as bu]
    [badspreadsheet.components :as bc]
-   [badspreadsheet.cells2 :as c]
+   [badspreadsheet.cells3 :as c]
    [badspreadsheet.server :as server]
+   [clojure.walk :as walk]
    [clojure.core.async :as a
     :refer [chan go-loop
             pub sub unsub
@@ -21,8 +23,7 @@
   {:size      20
    :active    nil
    :camera    {:location [0 0]}
-   :cursor    {:location [0 0] :size [1 1]}
-   :occupied  #{}
+   :cursor    {:location [0 0] :size [7 3]}
    :entities  {}
    :timers    {}
    :waypoints {}
@@ -31,12 +32,51 @@
 (defonce state
   (atom state-map))
 
+(defonce location-index
+  (atom {}))
+
+;; map of locations to the cells looking at that location
+(defonce location-registry
+  (atom []))
+
+(defn- covers
+  [{:keys [location size]}]
+  (let [[x y]   location
+        [nx ny] size]
+    (for [sx (range nx)
+          sy (range ny)]
+      [(+ x sx) (+ y sy)])))
+
+(defn- entity-covers
+  [entity]
+  (into #{} (covers entity)))
+
+(defn dissoc-val
+  [m value]
+  (into {} (remove (fn [[_ v]] (= v value))) m))
+
+(defn untrack-location!
+  [{:keys [id]}]
+  (let [xf (fn [m]
+             (-> m
+                 (dissoc-val id)))]
+    (swap! location-index xf)))
+
+(defn track-location!
+  [{:keys [id] :as entity}]
+  (let [xf (fn [m]
+             (-> m
+                 (dissoc-val id)
+                 (merge (zipmap (covers entity) (repeat id)))))]
+    (c/touch! c/location-touch)
+    (swap! location-index xf)))
+
 (defonce ^:private entity-counter (atom -1))
 ;; threadpool and timing stuff
 (defonce runner-pool (at/mk-pool))
 
 (defn clear-state! []
-  (c/reset-cells!)
+  (c/destroy-cells!)
   (reset! c/global-cells {})
   (reset! entity-counter -1)
   (at/stop-and-reset-pool! runner-pool)
@@ -82,12 +122,20 @@ body {
                                                        :height "110vh"}}
                                               (init-grid-for-get!)]]])})}})
 
-(defn- new-entity-id [] (swap! entity-counter inc))
+(defn- new-entity-id
+  "What will be the next cell's ID? Use that without incrementing the cell counter, because the cell creation does that."
+  []
+  (inc @c/cell-counter))
+
+(defn broadcast-content-into!
+  [id content]
+  (server/broadcast!
+       server-map
+       [:div {:id id} content]))
 
 (defonce previous-render (atom #{}))
 (defn bulk-render-and-broadcast []
   (let [values        (->> @c/global-cells
-                           :cells
                            vals
                            (mapv (fn [cell]
                                    (let [{:keys [id output error display]} @cell]
@@ -105,6 +153,23 @@ body {
           bc/render-value2
           (vals messages))))))
 
+(defn- add-value
+  [{:keys [id] :as entity}]
+  (let [v (c/value id)]
+    (assoc entity :value v)))
+
+(defn bulk-render-and-broadcast2
+  []
+  (when-let [entities (map add-value (vals (get-in @state [:entities])))]
+    (server/broadcast!
+     server-map
+     (into [:<>] (map bc/render-value2) entities))))
+
+(add-watch c/global-cells :state-render
+           (fn [_ _ _ n]
+             (when (seq n)
+               (bulk-render-and-broadcast2))))
+
 (defonce watcher-control-chan (chan))
 (defonce watcher-control-chan-mult (a/mult watcher-control-chan))
 (defonce watcher-running (atom false))
@@ -113,6 +178,7 @@ body {
   (>!! watcher-control-chan true)
   (reset! watcher-running false))
 
+#_
 (defn start-watcher []
   (when-not @watcher-running
     (reset! watcher-running true)
@@ -140,135 +206,122 @@ body {
           ;; Broadcast accumulated messages
           (if (not= ch control-b)
             (do (when @accumulator
-                  (#'bulk-render-and-broadcast)
+                  (#'bulk-render-and-broadcast2)
                   (reset! accumulator false))
                 (recur))
             (do (a/untap watcher-control-chan-mult control-b)
                 (println "broadcast loop in watcher stopped"))))))))
 
+#_
+(defn start-watcher2 []
+  (when-not @watcher-running
+    (reset! watcher-running true)
+    (let [listen-chan (chan (a/sliding-buffer 1))
+          control-a (chan)]
+      (a/tap c/event-bus-mult listen-chan)
+      (a/tap watcher-control-chan-mult control-a)
+      ;; Message listening and broadcast loop
+      (go-loop []
+        (let [[m ch] (a/alts! [listen-chan control-a])]
+          (if (= ch listen-chan)
+            (do #_(println "MESSAGE: " m)
+                (#'bulk-render-and-broadcast2)
+                (recur))
+            (do (a/untap c/event-bus-mult listen-chan)
+                (a/untap watcher-control-chan-mult control-a)
+                (println "loop in watcher stopped"))))))))
+
+(defn re-render!
+  [ids]
+  (let [entities (:entities @state)]
+    (server/broadcast!
+     server-map
+     (into [:<>] (map #(bc/editor (get entities %) @state)) ids))))
+
 (defn make-entity
   [loc size]
-  (let [id (new-entity-id)
-        cell (-> (c/formula (fn [] ""))
-                 #_(c/c-merge {:display :content}))]
-    (c/touch! cell)
-    {:id id
+  (let [id   (new-entity-id)
+        cell (-> (c/formula (fn [] "")))]
+    #_(c/touch! cell)
+    (c/c-merge cell {:display  :content
+                     :location loc
+                     :size     size})
+    {:id       id
      :location loc
-     :size size
-     :display :content
-     :cell cell
-     :content ""
-     :error nil
-     :timers nil}))
-
-(defn- entity-covers
-  [{:keys [location size]}]
-  (let [[x y] location
-        [nx ny] size]
-    (into #{}
-          (for [sx (range nx)
-                sy (range ny)]
-            [(+ x sx) (+ y sy)]))))
-
-(defn fix-occupied!
-  []
-  (swap! state assoc :occupied
-         (apply set/union (map entity-covers (vals (:entities @state))))))
+     :size     size
+     :display  :content
+     :cell     cell
+     :content  ""
+     :error    nil
+     :timers   nil}))
 
 (defn make-entity!
   ([loc] (make-entity! loc [1 1]))
   ([loc size]
-   (let [lstate @state
-         occupied-locations (:occupied lstate)]
-     #_(when-not (occupied-locations loc))
-     (let [{:keys [id] :as entity} (make-entity loc size)
-           covered                 (entity-covers entity)
-           xf                      (fn [state]
-                                     (-> state
-                                         (assoc :active id
-                                                :occupied (set/union occupied-locations covered))
-                                         (assoc-in [:entities id] entity)
-                                         (update :locations (partial merge-with set/union)
-                                                 (zipmap covered (repeat #{id})))))]
-       (swap! state xf)
-       (doseq [loc-cell (map #(get-in lstate [:location-cells %]) covered)]
-         (when loc-cell
-           (c/touch! loc-cell)))
-       id))))
-
-(defn- remove-nil-vals
-  [m]
-  (into {} (remove #(nil? (second %)) m)))
-
-(defn- remove-empty-sets
-  [m]
-  (into {} (filter #(seq (second %)) m)))
+   (let [{:keys [id] :as entity} (make-entity loc size)
+         xf                      (fn [state]
+                                   (-> state
+                                       (assoc :active id)
+                                       (assoc-in [:entities id] entity)))]
+     (swap! state xf)
+     id)))
 
 (defn remove-entity!
   [id]
-  (let [{:keys [occupied] :as lstate}     @state
+  (let [lstate                    @state
         {:keys [cell] :as entity} (get-in lstate [:entities id])]
     (when entity
-      (let [old-covering (entity-covers entity)
-            xf           (fn [state]
+      (let [xf (fn [state]
                            (-> state
-                               (assoc :occupied (set/difference occupied old-covering))
-                               (update :entities dissoc id)
-                               (update :locations update-vals #(set/difference % #{id}))
-                               (update :locations remove-nil-vals)
-                               (update :locations remove-empty-sets)))]
+                               (update :entities dissoc id)))]
         (swap! state xf)
-        (doseq [loc-cell (map #(get-in lstate [:location-cells %]) old-covering)]
-          (when loc-cell
-            (c/touch! loc-cell)))
+        (untrack-location! entity)
         (c/destroy! cell)))))
 
 (defn move-entity!
   [new-loc entity-id]
   (let [lstate @state
-        {:keys [size] :as entity} (get-in lstate [:entities entity-id])
-        old-covering              (entity-covers entity)
-        new-covering              (entity-covers {:location new-loc :size size})
-        other-covering            (set/difference (:occupied lstate) old-covering)]
+        entity (get-in lstate [:entities entity-id])]
     (when entity
       (let [moved-entity (assoc entity :location new-loc)
             xf           (fn [state]
                            (-> state
-                               (assoc :occupied (set/union new-covering other-covering))
-                               (assoc-in [:entities entity-id] moved-entity)
-                               (update :locations update-vals #(set/difference % #{entity-id}))
-                               (update :locations remove-nil-vals)
-                               (update :locations remove-empty-sets)
-                               (update :locations (partial merge-with set/union)
-                                       (zipmap new-covering (repeat #{entity-id})))))]
+                               (assoc-in [:entities entity-id] moved-entity)))]
+        (c/c-assoc entity-id :location new-loc)
+        (c/touch! entity-id)
+        (track-location! moved-entity)
         (swap! state xf)
-        (doseq [loc-cell (map #(get-in lstate [:location-cells %]) (set/union old-covering new-covering))]
-          (when loc-cell
-            (c/touch! loc-cell)))
+        moved-entity))))
+
+(defn move-entity-relative!
+  [rel-loc new-loc entity-id]
+  (let [lstate @state
+        {:keys [location] :as entity} (get-in lstate [:entities entity-id])
+        new-loc (mapv + new-loc (mapv - location rel-loc))]
+    (when entity
+      (let [moved-entity (assoc entity :location new-loc)
+            xf           (fn [state]
+                           (-> state
+                               (assoc-in [:entities entity-id] moved-entity)))]
+        (c/c-assoc entity-id :location new-loc)
+        (c/touch! entity-id)
+        (track-location! moved-entity)
+        (swap! state xf)
         moved-entity))))
 
 (defn resize-entity!
   [new-size entity-id]
   (when (every? #(> % 0) new-size)
     (let [lstate @state
-          {:keys [location] :as entity} (get-in lstate [:entities entity-id])
-          old-covering                  (entity-covers entity)
-          new-covering                  (entity-covers {:location location :size new-size})
-          other-covering                (set/difference (:occupied lstate) old-covering)]
+          entity (get-in lstate [:entities entity-id])]
       (when entity
         (let [resized-entity (assoc entity :size new-size)
               xf             (fn [state]
                                (-> state
-                                   (assoc :occupied (set/union new-covering other-covering))
-                                   (assoc-in [:entities entity-id] resized-entity)
-                                   (update :locations update-vals #(set/difference % #{entity-id}))
-                                   (update :locations remove-nil-vals)
-                                   (update :locations remove-empty-sets)
-                                   (update :locations (partial merge-with set/union)
-                                           (zipmap new-covering (repeat #{entity-id})))))]
-          (doseq [loc-cell (map #(get-in lstate [:location-cells %]) (set/union old-covering new-covering))]
-            (when loc-cell
-              (c/touch! loc-cell)))
+                                   (assoc-in [:entities entity-id] resized-entity)))]
+          (c/c-assoc entity-id :size new-size)
+          (c/touch! entity-id)
+          (track-location! resized-entity)
           (swap! state xf))))))
 
 (def display-sequence
@@ -302,8 +355,10 @@ body {
         (if (> (count read-forms) 1)
           (cons 'do read-forms)
           (first read-forms))))
-    (catch Exception _e
-      (println "Error reading string.")
+    (catch Exception e
+      (println "Error reading string."
+               s
+               (ex-cause e))
       nil)))
 
 (def ^:private sharp-forms
@@ -348,38 +403,52 @@ body {
       cell
       (make-time-cell! interval))))
 
-(defn- make-location-cell!
-  [loc]
-  (let [cell (c/formula
-              (fn []
-                (let [state      @state
-                      ids        (get-in state [:locations loc])
-                      value-cell (get-in state [:entities (first ids) :cell])]
-                  (when value-cell
-                    (c/touch! value-cell)
-                    (c/value value-cell)))))]
-    (swap! state assoc-in [:location-cells loc] cell)
-    cell))
-
 (defn l#
+  "Location reference."
   [loc]
-  (let [loc-cell-id (get-in @state [:location-cells loc])]
-    (if loc-cell-id
-      loc-cell-id
-      (make-location-cell! loc))))
+  loc)
+
+(def core-syms
+  (keys (ns-publics (find-ns 'clojure.core))))
+
+(defmacro qualify-user-syms
+  [form]
+  (let [user-ns      (find-ns 'user)
+        public-syms  (ns-publics user-ns)
+        aliases      (ns-aliases user-ns)
+        refers       (apply dissoc (concat [(ns-refers (find-ns 'user))] core-syms))
+        all-syms     (merge public-syms refers)
+        qualify-sym  (fn [sym]
+                       (let [split-sym (clojure.string/split (str sym) #"/")]
+                         (if (= 1 (count split-sym))
+                           (if-let [v (get all-syms (symbol sym))]
+                             (symbol (str (ns-name (ns v)) "/" sym))
+                             sym)
+                           (let [alias     (symbol (first split-sym))
+                                 actual-ns (get aliases alias)]
+                             (if actual-ns
+                               (symbol (str (ns-name actual-ns) "/" (second split-sym)))
+                               sym)))))
+        qualify-form (fn [frm]
+                       (walk/postwalk (fn [x]
+                                        (if (symbol? x) (qualify-sym x) x))
+                                      frm))]
+    (qualify-form form)))
 
 (defn formulize
   [form]
   (let [sharps           (collect-sharp-forms form)
-        syms             (mapv (fn [[sym id]] (symbol (format "%s%s" sym id))) sharps)
+        syms             (mapv (fn [[sym id]] (symbol (format "%s%s" sym (str/replace (str id) #"[ \[\]]" "_")))) sharps)
         smap             (zipmap sharps syms)
         input-cell-forms (vec (walk/postwalk-replace sharp-forms sharps))
-        a                (eval `(binding [~'*ns* (find-ns '~'user)]
-                                  (fn ~syms
-                                    ~(walk/postwalk-replace smap form))))]
-    {:fun         a
-     :form        `(fn ~syms ~(walk/postwalk-replace smap form))
-     :input-cells (when (seq input-cell-forms) (map eval input-cell-forms))}))
+        bound-fn         `(memoize
+                           (fn ~syms
+                             (binding [*ns* (find-ns 'user)])
+                             ~(walk/postwalk-replace smap (qualify-user-syms form))))
+        input-forms      (when (seq input-cell-forms) (map eval input-cell-forms))]
+    {:fun         (eval bound-fn)
+     :form        form
+     :input-cells input-forms}))
 
 (defn maybe-formulize
   [form]
@@ -392,12 +461,10 @@ body {
 
 (defn reset-cell!
   [id form]
-  (let [{:keys [fun _form input-cells] :as asdf} (maybe-formulize form)
-        #_#__ (println "RESET CELL: " asdf)]
+  (let [{:keys [fun _form input-cells]} (maybe-formulize form)]
     (when fun
-      (c/reset-function! id fun input-cells))
-    #_(doseq [input input-cells]
-      (c/touch! input))))
+      (c/reset-function! id fun input-cells)
+      (c/touch! c/location-touch))))
 
 (defn grid-square
   [x y size]
@@ -418,28 +485,40 @@ body {
 
 (defn- handle-entity
   ([req] (handle-entity req false))
-  ([{:keys [id code] :as asdf} init?]
+  ([{:keys [id code]} init?]
    (when id
-     (let [code    (if init? "" code) ;; intentionally initialize entities with empty code for loading purposes
-           id      (if (string? id) (parse-long id) id)
-           form    (maybe-read-string code)
-           cell-id (get-in @state [:entities id :cell])]
+     (let [code      (if init? "" code) ;; intentionally initialize entities with empty code for loading purposes
+           id        (if (string? id) (parse-long id) id)
+           prev-str  (:content (get-in @state [:entities id]))
+           prev-form (:form (get-in @state [:entities id]))
+           new-form  (when (not (= (str/trim code) (str/trim prev-str))) (maybe-read-string code))
+           form      (when (not= new-form prev-form) new-form)
+           cell-id   (get-in @state [:entities id :cell])]
+       (track-location! (get-in @state [:entities id]))
        (when (or
               init?
               (= code "")
               form)
-         (swap! state assoc-in [:entities id :content] code)
+         (swap! state (fn [m]
+                        (-> m
+                            (assoc-in [:entities id :content] code)
+                            (assoc-in [:entities id :form] form))))
          (reset-cell! cell-id form))))))
 
 (defmethod server/data-handler :code
   [req]
   (handle-entity req))
 
+#_
 (defn save-entities!
   [fname]
-  (let [{:keys [entities]} @state
+  (let [{:keys [entities waypoints]} @state
         cleaned (mapv (fn [entity] (dissoc entity :cell :watcher)) (vals entities))]
     (spit fname (vec (sort-by :id cleaned)))))
+
+(defn save!
+  [fname]
+  (spit fname (dissoc @state :timers)))
 
 (defn- insert-entity!
   "Inserts a loaded entity into the app state."
@@ -506,12 +585,33 @@ body {
       (handle-entity {:id id :code content}))
     (doseq [id missing-ids]
       (remove-entity! id))
-    (doseq [cell-id (-> @c/global-cells :cells vals)]
+    #_(doseq [cell-id (-> @c/global-cells vals)]
       (try
         (c/touch! cell-id)
-        (catch Exception _e nil)))
-    (doseq [{:keys [cell]} (-> @state :entities vals)]
-      (c/touch! cell))))
+        (catch Exception _e nil)))))
+
+(defn load!
+  [fname]
+  (clear-state!)
+  (let [{:keys [entities] :as loaded-state} (read-edn-file fname)
+        ids                                 (set (keys entities))
+        _ (println ids)
+        max-id                              (apply max ids)
+        missing-ids                         (set/difference (set (range max-id)) ids)
+        temp-entities                       (map temp-entity missing-ids)
+        all-entities                        (sort-by :id (concat (vals entities) temp-entities))]
+    ;; insert blank entities from id 0 to id max
+    (doseq [entity all-entities]
+      (insert-entity! entity))
+    ;; populate the relevant ids with their actual contents from the loaded state
+    (doseq [{:keys [id content]} (vals entities)]
+      (handle-entity {:id id :code content}))
+    ;; remove the temporary ids that didn't exist in the loaded state
+    (doseq [id missing-ids]
+      (remove-entity! id))
+    ;; swap the rest of the state data in, excluding entities
+    ;; since we've already loaded them in
+    (swap! state merge (dissoc loaded-state :entities))))
 
 (defmethod server/data-handler :make-active
   [{:keys [id]}]
@@ -519,7 +619,6 @@ body {
         entity     (get-in @state [:entities id])
         cursor-map {:location (:location entity)
                     :size     (:size entity)}]
-    #_#_
     (swap! state assoc
            :active id
            :cursor cursor-map
@@ -599,10 +698,13 @@ body {
                                    (> cursor-y #_(+ cursor-y size-y) (+ extent-y camera-y)) :down)]
     direction))
 
+(defn occupied
+  [loc]
+  (contains? @location-index loc))
+
 (defn- move-cursor!
   [direction-or-location]
-  (let [{occupied :occupied
-         kursor   :cursor}      @state
+  (let [{kursor   :cursor}      @state
         {:keys [location size]} kursor
         was-over-entity?        (occupied location)]
     (when location
@@ -628,7 +730,6 @@ body {
             server-map
             [:div#insert-target [:script "unfocusActiveElement();"]]))
          (when-let [direction (camera-move new-loc size)]
-           (println "CAMERA MOVE REQUIRED.")
            (move-camera! direction))
          (server/broadcast!
           server-map
@@ -636,10 +737,10 @@ body {
 
 (defn- move-entities-in-cursor!
   [direction-or-location]
-  (let [{entities :entities occupied :occupied kursor :cursor} @state
+  (let [{entities :entities kursor :cursor} @state
         entities                                               (vals entities)
         in-cursor                                              (entity-covers kursor)]
-    (when (some in-cursor occupied)
+    (when (some in-cursor (set (keys @location-index)))
       (let [to-move (filter (fn [{:keys [location size]}]
                               (and (in-cursor location)
                                    (in-cursor (mapv + location (map dec size))))) entities)
@@ -650,7 +751,7 @@ body {
                                                          :up    [ 0 -1]
                                                          :down  [ 0  1]} direction-or-location))
                                       direction-or-location)]
-                        (move-entity! new-loc id)))
+                        (move-entity-relative! location new-loc id)))
             moved   (mapv movefn! to-move)]
         (move-cursor! direction-or-location)
         (server/broadcast!
@@ -659,10 +760,10 @@ body {
 
 (defn- delete-entities-in-cursor!
   []
-  (let [{entities :entities occupied :occupied kursor :cursor} @state
+  (let [{entities :entities kursor :cursor} @state
         entities                                               (vals entities)
         in-cursor                                              (entity-covers kursor)]
-    (when (some in-cursor occupied)
+    (when (some in-cursor (set (keys @location-index)))
       (let [to-delete (filter (fn [{:keys [location size]}]
                                   (and (in-cursor location)
                                        (in-cursor (mapv + location (map dec size))))) entities)
@@ -727,12 +828,14 @@ body {
   (let [{:keys [cursor active]} @state]
     (when-not active
       (println "creating entity...")
-      (let [entity-id (make-entity! (:location cursor) (:size cursor))]
+      (let [entity-id (make-entity! (:location cursor) (:size cursor))
+            new-entity (get-in @state [:entities entity-id])]
+        (track-location! new-entity)
         (server/broadcast!
          server-map
          [:div#insert-target
           {:hx-swap-oob "afterend"}
-          (bc/editor (get-in @state [:entities entity-id]) @state)])))))
+          (bc/editor new-entity @state)])))))
 
 (defn- delete-entity!
   []
@@ -769,9 +872,13 @@ body {
   [{:keys [direction]}]
   (toggle-displays-in-area! (keyword direction)))
 
+(defmethod server/data-handler :toggle-overlay
+  [_]
+  (swap! state update :overlay-on not)
+  (server/broadcast! server-map (bc/cursor (:cursor @state) @state)))
+
 (defmethod server/data-handler :keypress
   [{keys-pressed :keys}]
-  (fix-occupied!)
   (case (vec (rest keys-pressed))
     ["enter"] (do (create-entity!) (focus-active-entity!))
 
@@ -784,7 +891,7 @@ body {
     ["ctrl" "d"] (delete-entity!)
     ["ctrl" "c"] (copy-entities!)
     ["ctrl" "v"] (paste-entities!)
-    ["ctrl" "s"] (save-entities! "out.edn")
+    ["ctrl" "s"] (save! "out2.edn")
 
     ["left"]  (move-cursor! :left)
     ["right"] (move-cursor! :right)
@@ -810,7 +917,6 @@ body {
 
 (defmethod server/data-handler :gamepad
   [{:keys [buttons]}]
-  (fix-occupied!)
   (case (vec (rest buttons))
     ["d-left"]  (move-cursor! :left)
     ["d-right"] (move-cursor! :right)

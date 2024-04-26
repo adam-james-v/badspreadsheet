@@ -12,17 +12,52 @@
   (let [args (remove #{::empty} args)]
     (try
       (apply f args)
-      (catch Exception _e nil))))
+      (catch Exception e
+        (ex-cause e)))))
 
-(defonce event-bus (chan (a/sliding-buffer 1)))
+(defn- covers
+  [{:keys [location size]}]
+  (when (and location size)
+    (let [[x y]   location
+          [nx ny] size]
+      (for [sx (range nx)
+            sy (range ny)]
+        [(+ x sx) (+ y sy)]))))
+
+(defn split-event
+  [{:keys [id] :as event}]
+  (let [base-event (dissoc event :id :location :size)]
+    (map #(assoc base-event :id %) (conj (covers event) id))))
+
+(defonce input-bus (chan (a/sliding-buffer 1000)))
+(defonce event-bus (chan (a/sliding-buffer 1000)))
+(a/pipeline 4 event-bus (mapcat split-event) input-bus)
 (defonce event-bus-mult (a/mult event-bus))
-(defonce event-publisher (pub event-bus :id))
+(defonce event-publisher (pub event-bus :id #_(fn [_] (a/sliding-buffer 1000))))
 (defonce action-bus (chan (a/sliding-buffer 1)))
 (defonce action-publisher (pub action-bus :id))
 (defonce cell-counter (atom -1))
 (defonce global-cells (atom {:cells {}}))
 
-(defn- new-cell-id
+(def print-lock (Object.))  ; Create an object to use as a lock
+
+(defn safe-println [& args]
+  (locking print-lock
+    (apply println args)))
+
+(defonce ebm (a/mult event-bus))
+(defonce logger-chan (a/chan))
+(a/tap ebm logger-chan)
+(defn start-logger []
+  (go-loop []
+    (when-let [msg (<! logger-chan)]
+      (safe-println "Log Event Bus Message:" msg)
+      (recur))))
+
+(start-logger)
+
+
+(defn new-cell-id
   []
   (swap! cell-counter inc))
 
@@ -44,6 +79,70 @@
   (doseq [id inputs]
     (when id
       (unsub event-publisher id channel))))
+
+#_
+(defn- cell*
+  [{:keys [inputs channel control-channel initial-output id] :as cell-map}]
+  (let [imap  (input-vec->map inputs)
+        state (atom (assoc cell-map :imap imap))]
+
+    ;; sub the cell's chan to its own id to listen for :action messages
+    (sub action-publisher id control-channel)
+    (connect-inputs inputs channel)
+
+    (go-loop []
+      (if (= :stop (:control @state))
+        (do
+          (disconnect-inputs inputs channel)
+          (a/close! channel)
+          (a/close! control-channel)
+          (reset! state nil))
+        (let [[{input-id :id
+                value    :value
+                action   :action} ch] (a/alts! [channel control-channel])]
+          (if (= ch channel)
+            (let [{:keys [process-fn previous current location size imap]
+                   :as   lstate} @state
+                  current-args   (if (empty? imap)
+                                   current
+                                   (apply (partial assoc current) (mapcat (fn [idx] [idx value]) (get imap input-id))))
+                  v              (maybe-apply process-fn current-args)
+                  lstate         (cond-> lstate
+                                   true
+                                   (assoc :current current-args)
+
+                                   v
+                                   (assoc :output v)
+
+                                   (not= previous current-args)
+                                   (assoc :previous current-args))]
+              #_(println "CELL: " id "triggered by: " input-id "Calculated value: " v)
+              ;; save the new state
+              (reset! state lstate)
+              ;; output a value (cached or computed) onto the event bus
+              (>! input-bus {:id       id
+                             :location location
+                             :size     size
+                             :value    v}))
+
+            ;; when this cell receives an action, perform it
+            (case action
+              :stop
+              (swap! state assoc :control :stop)
+
+              :touch
+              (let [{:keys
+                     [process-fn current location size]} @state
+                    v                                    (maybe-apply process-fn current)]
+                #_(println "CELL: " id "TOUCHED. Value is: " v)
+                (when v (swap! state assoc :output v))
+                (>! input-bus {:id       id
+                               :location location
+                               :size     size
+                               :value    v}))))
+          (recur))))
+    ;; return the state object so that the cell can be modified
+    state))
 
 (defn- cell*
   [{:keys [inputs channel control-channel initial-output id] :as cell-map}]
@@ -112,7 +211,7 @@
         cell-map  {:id              id
                    :inputs          inputs
                    :channel         (chan (a/sliding-buffer 1))
-                   :control-channel (chan)
+                   :control-channel (chan (a/sliding-buffer 1))
                    :process-fn      process-fn
                    :initial-output  initial-output
                    :previous        init-vals
@@ -123,6 +222,8 @@
 (defn touch!
   "Cause the cell to output."
   [id]
+  #_(println "touch!" id)
+  (swap! global-cells update ::touch-key not)
   (>!! action-bus {:id id :action :touch}))
 
 (defn destroy!
@@ -134,7 +235,7 @@
     (>!! action-bus {:id id :action :stop})
     (swap! global-cells update-in [:cells] dissoc id)))
 
-(defn reset-cells!
+(defn destroy-cells!
   []
   (reset! cell-counter -1)
   (doseq [id (keys (:cells @global-cells))]
@@ -271,9 +372,10 @@
         syms             (mapv (fn [[sym id]] (symbol (format "%s%s" sym id))) sharps)
         smap             (zipmap sharps syms)
         input-cell-forms (vec (walk/postwalk-replace sharp-forms sharps))]
-    {:fun         (eval `(fn ~syms
-                           (binding [~'*ns* (find-ns '~'user)]
-                             ~(walk/postwalk-replace smap form))))
+    {:fun         (binding [*ns* (find-ns 'user)]
+                         (eval `(fn ~syms
+                                  (binding [~'*ns* (find-ns '~'user)]
+                                    ~(walk/postwalk-replace smap form)))))
      :form        `(fn ~syms ~(walk/postwalk-replace smap form))
      :input-cells (when (seq input-cell-forms) (map eval input-cell-forms))}))
 
@@ -314,5 +416,5 @@
 
 ;; To use the ::builder:
 #_
-(>!! event-bus {:id ::content
+(>!! input-bus {:id ::content
                 :s "(* 3 4)"})

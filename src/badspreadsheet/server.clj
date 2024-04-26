@@ -105,13 +105,20 @@
 (defn- resource-response
   [{:keys [params]}]
   (let [{:keys [file partial-path]} params
-        ext  (last (str/split file #"\."))]
+        ext                         (last (str/split file #"\."))
+        resource                    (io/resource (str partial-path "/" file))]
     {:status  200
-     :headers {"Content-Type" (format "text/%s" (if (= ext "js") "javascript" ext))}
-     :body    (slurp (io/resource (str partial-path "/" file)))}))
+     :headers {"Content-Type" (format (if (#{"png" "jpeg" "jpg"} ext) "image/%s" "text/%s") (if (= ext "js") "javascript" ext))}
+     :body    (if resource
+                (slurp resource)
+                (badspreadsheet.components/file-to-byte-array file))}))
 
 (def default-routes
-  {["/resources/:partial-path/:file" :get] resource-response
+  {["/tmp" :get]                           (fn [_] (println "HEY")
+                                             {:headers {"Content-Type" "image/png"}
+                                              :body    (badspreadsheet.components/file-to-byte-array "_tmp.png")
+                                              #_(.getBytes (slurp "_tmp.png"))})
+   ["/resources/:partial-path/:file" :get] resource-response
    ["/socket" :get]                        ws-handler
    ["/" :get]                              (fn [_] {:body (page page-head [[:div#broadcast-target "Broadcast Stuff Here!"]])})
    ["/data" :post]                         (fn [req]
@@ -167,3 +174,7 @@
       (do (stop-server server-map)
           (swap! servers assoc port (srv/run-server app {:port port}))
           (println "Server started on Port: " port)))))
+
+
+;; Here's the reverse proxy oneliner:
+;; caddy reverse-proxy --from ambp.local:8001 --to localhost:8000

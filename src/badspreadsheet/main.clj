@@ -1,10 +1,12 @@
 (ns badspreadsheet.main
   (:require
-   [badspreadsheet.cells2 :as c]
+   [badspreadsheet.cells3 :as c]
    [badspreadsheet.spreadsheet :as bs]
+   [badspreadsheet.server :as server]
    [clojure.core.async :as a :refer [>!]])
   (:gen-class))
 
+#_#_
 (defn put!
   "Put the value `v` to the target cell `target`."
   [target v]
@@ -16,10 +18,38 @@
   [target]
   (partial put! target))
 
+(defn load-requires
+  [require-form]
+  (eval
+   `(binding [*ns* (find-ns 'user)] ~require-form))
+  "loaded.")
+
+(defn send-value>
+  [target val]
+  (bs/broadcast-content-into! target val))
+
+(defn write-value>
+  [target-cell-id val]
+  (server/data-handler {:dispatch :code
+                        :id       target-cell-id
+                        :value    (str val)}))
+
 (defn -main
   []
   #_(bs/stop-watcher)
   (bs/clear-state!)
-  (bs/start-watcher)
+  #_(bs/start-watcher2)
   (bs/start!)
-  #_(bs/load-entities! "out.edn"))
+  #_(bs/load! "out2.edn"))
+
+
+(comment
+
+  ;; First, load up the 'guiding-ideas.edn':
+  (bs/load! "guiding-ideas.edn")
+  ;; Then, show the basics
+  (bs/load! "basics.edn")
+  ;;
+
+
+  )

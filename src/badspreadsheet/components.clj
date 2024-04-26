@@ -1,17 +1,41 @@
 (ns badspreadsheet.components
   (:require
-   [badspreadsheet.cells2 :as c]
+   [badspreadsheet.cells3 :as c]
    [cheshire.core :as json]
+   [clojure.data.codec.base64 :as b64]
+   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.walk :as walk]
    [nextjournal.markdown :as md]
    [nextjournal.markdown.transform :as md.transform]
    [scicloj.kindly-advice.v1.api :as kindly-advice]
    [scicloj.kindly.v4.kind :as kind]
-   [squint.compiler]
-   [svg-clj.elements :as el]
-   [svg-clj.path :as path]
-   [svg-clj.transforms :as tf]))
+   [squint.compiler :as squint]
+   [svg-clj2.elements :as el]
+   [svg-clj2.layout :as lo]
+   [svg-clj2.parametric :as p]
+   [svg-clj2.path :as path]
+   [svg-clj2.transforms :as tf]
+   [svg-clj2.utils :as u]))
+
+(defn file-to-byte-array [relative-path]
+  (let [file (io/file relative-path)                       ; Create a file object
+        resource-stream (io/input-stream file)]            ; Open input stream for the file
+    (let [byte-array-output-stream (java.io.ByteArrayOutputStream.)]
+      (io/copy resource-stream byte-array-output-stream)   ; Copy stream data to byte array output stream
+      (.toByteArray byte-array-output-stream))))           ; Convert byte array output stream to byte array
+
+(defn bytes->b64u
+  "Encode data to base64 byte array (using url-safe variant)."
+  [^bytes data]
+  (let [encoder (-> (java.util.Base64/getUrlEncoder)
+                    #_(.withoutPadding))]
+    (.encode encoder data)))
+
+(defn encode-image-to-base64
+  [image-path]
+  (let [bytes (file-to-byte-array image-path)]
+    (-> bytes bytes->b64u (String. "UTF-8"))))
 
 (defn compile-string
   [clj-str]
@@ -81,19 +105,22 @@
                   (for [item row]
                     [:td {:style {:padding 0 :margin 0}} item]))))))
 
+(def button-style-map
+  {:height        "100%"
+   :aspect-ratio  "1/1"
+   :box-sizing    "border-box"
+   :border        "1px solid #222"
+   :border-radius "2px"
+   :font-family   "monospace"
+   :font-size     "11pt"
+   :cursor        "pointer"})
+
 (defn button [label tooltip action]
   [:button.prevent-cursor-move
    {:title tooltip
     :onclick action
     :style
-    {:height        "100%"
-     :aspect-ratio  "1/1"
-     :box-sizing    "border-box"
-     :border        "1px solid #222"
-     :border-radius "2px"
-     :font-family   "monospace"
-     :font-size     "11pt"
-     :cursor        "pointer"}}
+    button-style-map}
    label])
 
 (defn- cursor-icon
@@ -128,6 +155,12 @@
               (tf/style {:filter "drop-shadow(0px 0.5px 0.25px rgba(9, 9, 10, 0.35))"})))
          (tf/translate [(+ t st) (+ t st)]))]))
 
+(defn- visible?
+  [[cx cy :as camera] extents [px py]]
+  (let [[ex ey] (mapv + camera extents)]
+    (and (<= cx px ex)
+         (<= cy py ey))))
+
 (defn home-point
   [{:keys [size camera extents]}]
   (let [c                 (:location camera)
@@ -135,36 +168,38 @@
         [ex ey]           extents
         px                (* size (max 0.25 (min renderx (- ex 0.25))))
         py                (* size (max 0.25 (min rendery (- ey 0.25))))]
-    [:div#origin
-     {:style   {:position "absolute"
-                :left px
-                :top  py}}
-     [:div.prevent-cursor-move
-      {:style {:width         12
-               :height        12
-               :left          (- 6)
-               :top           (- 6)
-               :box-sizing    "border-box"
-               :border-radius 6
-               :background    "linear-gradient(35deg, #811CFB 10%, #F4ACF0 100%)"
-               :position      "relative"}}]
-     [:div.prevent-cursor-move
-      {:onclick (fe-send {:dispatch :set-camera :position [(- (int (/ ex 2))) (- (int (/ ey 2)))]})
-       :style {:cursor          "crosshair"
-               :width           15
-               :height          15
-               :left            (- 7.5)
-               :top             (- (+ 7.5 12))
-               :box-sizing      "border-box"
-               :border          "1.5px solid rgba(235, 215, 235, 0.4)"
-               :border-radius   7.5
-               :backdrop-filter "blur(1px)"
-               :position        "relative"}}]]))
+    (when (visible? c extents [0 0])
+      [:div#origin
+       {:style   {:position "absolute"
+                  :left px
+                  :top  py}}
+       [:div
+        {:style {:width         12
+                 :height        12
+                 :left          (- 6)
+                 :top           (- 6)
+                 :box-sizing    "border-box"
+                 :border-radius 6
+                 :background    "linear-gradient(35deg, #811CFB 10%, #F4ACF0 100%)"
+                 :position      "relative"}}]
+       [:div
+        {:onclick (fe-send {:dispatch :set-camera :position [(- (int (/ ex 2))) (- (int (/ ey 2)))]})
+         :style {:cursor          "crosshair"
+                 :width           15
+                 :height          15
+                 :left            (- 7.5)
+                 :top             (- (+ 7.5 12))
+                 :box-sizing      "border-box"
+                 :border          "1.5px solid rgba(235, 215, 235, 0.4)"
+                 :border-radius   7.5
+                 :backdrop-filter "blur(1px)"
+                 :position        "relative"}}]])))
 
 (defn random-waypoint-color
   []
-  (let [[a b c d e f] (repeatedly 6 #(+ 100 (rand-int 156)))]
-    (str "linear-gradient(" (rand-int 360) "deg, rgb(" a "," b "," c ") 10%, rgb(" d "," e "," f ") 100%)")))
+  (let [[a b c d e f] (repeatedly 6 #(+ 20 (rand-int 236)))]
+    (format "rgb(%s,%s,%s)" a b c)
+    #_(str "linear-gradient(" (rand-int 360) "deg, rgb(" a "," b "," c ") 10%, rgb(" d "," e "," f ") 100%)")))
 
 (defn waypoint
   [{:keys [position label colour]} {:keys [size camera extents]}]
@@ -174,40 +209,183 @@
         [ex ey]           extents
         px                (* size (max 0.25 (min renderx (- ex 0.25))))
         py                (* size (max 0.25 (min rendery (- ey 0.25))))]
-    [:div.waypoint
-     {:id    (format "waypoint-%s-%s" wx wy)
-      :style {:position "absolute"
-              :left     px
-              :top      py}}
-     [:span {:style {:height   0
-                     :position "relative"
-                     :display  "block"}} (or label "")]
-     [:div.prevent-cursor-move
-      {:style {:width         12
-               :height        12
-               :left          (- 6)
-               :top           (- 6)
-               :box-sizing    "border-box"
-               :border-radius 6
-               :background    colour
-               :position      "relative"}}]
-     [:div.prevent-cursor-move
-      {:onclick
-       (str/join
-        ";\n"
-        [(fe-send {:dispatch :set-camera :position [(- wx (int (/ ex 2)))
-                                                    (- wy (int (/ ey 2)))]})
-         (fe-send {:dispatch :move-cursor :position [(inc wx) (inc wy)]})])
-       :style {:cursor          "crosshair"
-               :width           15
-               :height          15
-               :left            (- 7.5)
-               :top             (- (+ 7.5 12))
-               :box-sizing      "border-box"
-               :border          "1.5px solid rgba(235, 215, 235, 0.4)"
-               :border-radius   7.5
-               :backdrop-filter "blur(1px)"
-               :position        "relative"}}]]))
+    (when (visible? c extents w)
+      [:div.waypoint
+       {:id    (format "waypoint-%s-%s" wx wy)
+        :style {:position "absolute"
+                :left     px
+                :top      py}}
+       [:span {:style {:height   0
+                       :position "relative"
+                       :display  "block"}} (or label "")]
+       [:div
+        {:style {:width         12
+                 :height        12
+                 :left          (- 6)
+                 :top           (- 6)
+                 :box-sizing    "border-box"
+                 :border-radius 6
+                 :background    colour
+                 :position      "relative"}}]
+       [:div
+        {:onclick
+         (str/join
+          ";\n"
+          [(fe-send {:dispatch :set-camera :position [(- wx (int (/ ex 2)))
+                                                      (- wy (int (/ ey 2)))]})
+           #_(fe-send {:dispatch :move-cursor :position [(inc wx) (inc wy)]})])
+         :style {:cursor          "crosshair"
+                 :width           15
+                 :height          15
+                 :left            (- 7.5)
+                 :top             (- (+ 7.5 12))
+                 :box-sizing      "border-box"
+                 :border          "1.5px solid rgba(235, 215, 235, 0.4)"
+                 :border-radius   7.5
+                 :backdrop-filter "blur(1px)"
+                 :position        "relative"}}]])))
+
+(defn collect-location-refs
+  [form]
+  (letfn [(collect [x]
+            (cond
+              (and (list? x) (seq x) ((set ['l#]) (first x))) [(second x)]
+              (coll? x) (mapcat collect x)
+              :else []))]
+    (vec (distinct (collect form)))))
+
+(defn collect-cell-refs
+  [form]
+  (letfn [(collect [x]
+            (cond
+              (and (list? x) (seq x) ((set ['c#]) (first x))) [(second x)]
+              (coll? x) (mapcat collect x)
+              :else []))]
+    (vec (distinct (collect form)))))
+
+(defn v*
+  [v1 v2]
+  (mapv * v1 v2))
+
+(defn- iso-triangle
+  [b h]
+  (let [b-half (/ b 2.0)
+        h-half (/ h 2.0)]
+    (el/polygon [[(- b-half) (- h-half)]
+                 [ b-half (- h-half)]
+                 [0 h-half]])))
+
+(defn render-refs
+  [{:keys [id form location size]} {grid-size :size camera :camera :as state}]
+  (let [{camera-loc :location} camera
+        [x0 y0]                (mapv - (mapv + location (v* size [0.5 0.5])) camera-loc)
+        loc-refs               (map (fn [loc]
+                                      (mapv - (mapv + loc [0.5 0.5]) camera-loc)) (collect-location-refs form))
+        cell-locs              (map (fn [id]
+                                      (let [{:keys [location size loc-ref]} (get-in state [:entities id] {:location (mapv - location [0 (second size)])
+                                                                                                          :size     size
+                                                                                                          :loc-ref  true})]
+                                        (mapv - (mapv + location (v* size [0.5 0.5])) camera-loc)))
+                                    (collect-cell-refs form))]
+    (into [:g {:id (format "refs_for_%s" id)}]
+          (mapcat
+           (fn [[xr yr]]
+             (let [[a b c d :as pts] (map #(v* % [grid-size grid-size])
+                                          [[x0 y0]
+                                           [(+ x0 (* (- xr x0) 0.25)) y0]
+                                           [xr  (- yr (* (- yr y0) 0.25))]
+                                           [xr yr]])]
+               [#_[:circle {:r 5 :cx (* xr grid-size) :cy (* yr grid-size)}]
+                (-> (iso-triangle 14 20)
+                    (tf/translate a)
+                    #_(tf/rotate (u/angle-from-pts (mapv + b [0 -10]) b a)))
+                (-> (apply path/bezier pts)
+                    (tf/style {:fill   "none"
+                               :stroke "black"}))]))
+           (concat cell-locs loc-refs)))))
+
+(defn information-overlay
+  [{:keys [entities overlay-on waypoints extents size camera] :as state}]
+  (let [[cx cy] (:location camera)]
+    (into
+     [:svg#information-overlay
+      {:style {:pointer-events "none"
+               :width          "100vw"
+               :height         "100vh"
+               :position       "absolute"}}
+      [:g#overlay-controls
+       (-> (el/rect 30 30)
+           (tf/translate [20 20])
+           (tf/style {:style        {:pointer-events "auto"}
+                      :label        "Toggle Information Overlay."
+                      :onclick      (fe-send {:dispatch :toggle-overlay})
+                      :position     "absolute"
+                      :bottom       "-10px"
+                      :stroke-width 1
+                      :stroke       "black"
+                      :fill         "#abcabc"}))]
+      (-> (into
+           [:g {:id "waypoint-collection"}]
+           (map-indexed
+            (fn [idx {:keys [colour position label]}]
+              (let [[wx wy] position
+                    [ex ey] extents]
+                (-> (el/g
+                     (-> (el/circle 10)
+                         (tf/style {:style        {:pointer-events "auto"}
+                                    :fill         colour
+                                    :stroke       "black"
+                                    :stroke-width 2
+                                    :onclick      (fe-send {:dispatch :set-camera
+                                                            :position [(- wx (int (/ ex 2)))
+                                                                       (- wy (int (/ ey 2)))]})}))
+                     (-> (el/text label) (tf/translate [40 1])))
+                    (tf/translate [0 (* 30 idx)]))))
+            (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
+          (tf/translate [20 60]))
+      (into [:g]
+            (map (fn [[x y]]
+                   (let [left (* (- x cx) size)
+                         top  (* (- y cy) size)]
+                     [:rect {:id      (format "location_ref_%s_%s" x y)
+                             :width   size
+                             :height  size
+                             :x       left
+                             :y       top
+                             :stroke  "purple"
+                             :fill    "lavender"
+                             :opacity 0.2}])))
+            (filter c/loc? (keys @c/global-cells)))]
+     (when overlay-on
+       (map #(render-refs % state) (vals entities)))))
+
+  #_
+  (let []
+    (concat
+     (map-indexed (fn [idx [x y]]
+                    (let [left (* x size)
+                          top  (* y size)]
+                      [:div {:id    (format "location_ref_%s_%s" id idx)
+                             :style {:position   "absolute"
+                                     :left       left
+                                     :top        top
+                                     :box-sizing "border-box"
+                                     :border     "1px solid limegreen"
+                                     :width      size
+                                     :height     size}}]))
+                  location-refs)
+     ;; render cell refs
+     (map-indexed (fn [idx loc]
+                    (ref-indicator
+                     (format "cell_ref_%s_%s" id idx)
+                     [x y]
+                     loc
+                     global-size))
+                  cell-refs))))
+
+(defn image
+  [file-path]
+  [:img {:src (format "data:image/png;base64, %s" (encode-image-to-base64 file-path))}])
 
 (defn cursor
   [{:keys [location size]} {:keys [waypoints] :as state}]
@@ -237,54 +415,54 @@
     [:<>
      [:div#insert-target {:hx-swap-oob "afterend"}]
      [:div#cursor.smooth
-      {:grid-size       (str global-size)
-       :camera-location (str/join "," (get-in state [:camera :location]))
-       :cursor-location (str/join "," location)
-       :cursor-size     (str/join "," size)
-       :style           {:z-index  "2000"
-                         :position "relative"}}
-      [:div {:style {:pointer-events "none"}}
-       (let [pos-indicator-str      (format "[%s %s]" ox oy)
-             approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
-         [:div {:style {:position    "absolute"
-                        :user-select "none"
-                        :left        (* (- x approx-pos-indicator-w) global-size)
-                        :top         (* (dec y) global-size)}}
-          pos-indicator-str])
-       (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
-         [:div {:style {:position    "absolute"
-                        :user-select "none"
-                        :left        (* (+ x nx) global-size)
-                        :top         (* (+ y ny) global-size)}}
-          pos-indicator-str])
-       [:div {:style {:box-sizing     "border-box"
-                      :border-radius  4
-                      :position       "absolute"
-                      :pointer-events "none"
-                      :margin         -6
-                      :left           (* x global-size)
-                      :top            (* y global-size)
-                      :width          cursor-width
-                      :height         cursor-height}}
-        (cursor-icon cursor-width cursor-height)]]
-      (into [:div#waypoints
-             (home-point state)]
-            (mapv #(waypoint %1 state) (vals waypoints)))
+      {:grid-size         global-size
+       :camera-location   (str/join "," (get-in state [:camera :location]))
+       :cursor-location   (str/join "," location)
+       :cursor-size       (str/join "," size)
+       :active-element-id active
+       :style             {:z-index  "2000"
+                           :position "relative"}}
+      (let [pos-indicator-str      (format "[%s %s]" ox oy)
+            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
+        [:div {:style {:position    "absolute"
+                       :user-select "none"
+                       :left        (* (- x approx-pos-indicator-w) global-size)
+                       :top         (* (dec y) global-size)}}
+         pos-indicator-str])
+      (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
+        [:div {:style {:position    "absolute"
+                       :user-select "none"
+                       :left        (* (+ x nx) global-size)
+                       :top         (* (+ y ny) global-size)}}
+         pos-indicator-str])
+      [:div {:style {:box-sizing     "border-box"
+                     :border-radius  4
+                     :position       "absolute"
+                     :pointer-events "none"
+                     :margin         -6
+                     :left           (* x global-size)
+                     :top            (* y global-size)
+                     :width          cursor-width
+                     :height         cursor-height}}
+       (cursor-icon cursor-width cursor-height)]
       ;; Button bar below the cursor
       [:div.prevent-cursor-move {:style button-bar-style}
        (button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
        (button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
        (button "⌖" "Add/Remove the Waypoint at top-left of the cursor." (fe-send {:dispatch :toggle-waypoint :position location}))
-       (button "ⓧ" "Delete this Element." (fe-send {:dispatch :delete}))
+       #_(button "❌" "Delete this Element." (fe-send {:dispatch :delete}))
+       [:button {:label   "Delete this Element."
+                 :onclick (fe-send {:dispatch :delete})
+                 :style   (merge button-style-map {:font-size "8pt"})}
+        "❌"]
        (when active
          [:div {:style {:font-size   "8pt"
                         :width       0
                         :user-select "none"}}
           (str (:display (get-in state [:entities active])))])]
-      (when active
-        [:button
+      (when (and (> nx 2) (> ny 1))
+        [:button#drag-handle
          {:onMouseDown "toggleDragHandle()"
-          #_#_:onMouseUp   "toggleDragHandle()"
           :style       {:cursor        "grab"
                         :position      "absolute"
                         :user-select   "none"
@@ -298,7 +476,11 @@
                         :border-radius "3px"
                         :font-family   "monospace"
                         :font-size     "8pt"}}
-         "::"])]]))
+         "::"])
+      (information-overlay state)
+      (into [:div#waypoints
+             (home-point state)]
+            (mapv #(waypoint %1 state) (vals waypoints)))]]))
 
 (defn maybe-read-string [s]
   (try
@@ -351,6 +533,24 @@
                    (every? number? %)
                    (= 2 (count %))) v))))
 
+(defn- touch-tilt-control?
+  [content]
+  (if (string? content)
+    (when-let [v (maybe-read-string content)]
+      (and (map? v)
+           (= (:control v) :touch-tilt-control)))
+    (and (map? content)
+         (= (:control content) :touch-tilt-control))))
+
+(defn- drawing-canvas?
+  [content]
+  (if (string? content)
+    (when-let [v (maybe-read-string content)]
+      (and (map? v)
+           (= (:control v) :drawing-canvas)))
+    (and (map? content)
+         (= (:control content) :drawing-canvas))))
+
 (defn render-value
   [value]
   (cond
@@ -395,44 +595,60 @@
                                  :z-index          "1000"}]
      [:div {:cursor "auto"
             :id     (format "entity%s" id)}
-      [:div
-       {:id    (format "movable%s" id)
-        :style (merge
-                editor-style
-                (when enable-editor?
-                  {:overflow "visible"
-                   :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
-       [:div {:style {:height  (* ny global-size)
-                      :display (if (#{:none :content :control} display) "none" "block")}}
-        (render-value2 {:id      id
-                        :value   (c/value id)
-                        :display display})]
-       [:div {:id    (str id)
-              :style {:display (if enable-editor? "block" "none")
-                      :height  (* ny global-size)}}
-        [:hiccup/raw-html content]]
-       [:div
-        {:style {:position  "absolute"
-                 :top       0
-                 :right     0
-                 :padding   2
-                 :font-size "7pt"}}
-        "ID:" id]
-       ;; scripts
-       [:<>
-        (when (= display :control)
-          (cond
-            (number-content? content)
-            [:script ((if init? wrap-js-in-content-loaded identity) (clj->js `(makeNumberInput ~id)))]
+        [:div
+         {:id    (format "movable%s" id)
+          :style (merge
+                  editor-style
+                  (when enable-editor?
+                    {:overflow "visible"
+                     :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
+         [:div {:style {:height  (* ny global-size)
+                        :display (if (#{:none :content :control} display) "none" "block")}}
+          (render-value2 {:id      id
+                          :value   (c/value id)
+                          :display display})]
+         [:div {:id    (str id)
+                :style {:display (if enable-editor? "block" "none")
+                        :height  (* ny global-size)}}
+          [:hiccup/raw-html content]]
+         [:div
+          {:style {:position  "absolute"
+                   :top       0
+                   :right     0
+                   :padding   2
+                   :font-size "7pt"}}
+          "ID:" id]
+         ;; scripts
+         [:<>
+          (when (= display :control)
+            (cond
+              (number-content? content)
+              [:script ((if init? wrap-js-in-content-loaded identity) (clj->js `(makeNumberInput ~id)))]
 
-            (points-content? content)
-            [:points-editor
-             {:id          id
-              :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
-            :else nil))
-        (when enable-editor?
-          [:script (wrap (clj->js `(createEditorInstance ~id)))])
-        [:script (wrap (format "attachEntityListeners('movable%s');" id))]]]])))
+              (points-content? content)
+              [:points-editor
+               {:id          id
+                :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
+
+              (touch-tilt-control? content)
+              [:touch-tilt-control
+               {:style {:display "block"
+                        :width   "100%"
+                        :height  "100%"}
+                :id    id}]
+
+              (drawing-canvas? content)
+              [:drawing-canvas
+               {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
+                :style       {:display "block"
+                              :width   "100%"
+                              :height  "100%"}
+                :id          id}]
+
+              :else nil))
+          (when enable-editor?
+            [:script (wrap (clj->js `(createEditorInstance ~id)))])
+          [:script (wrap (format "attachEntityListeners('movable%s');" id))]]]])))
 
 (def points-editor-template
   [:template#points-editor-template
@@ -471,3 +687,8 @@
    [:svg.prevent-cursor-move {:xmlns "http://www.w3.org/2000/svg"}
     [:g#keep
      [:circle {:cx 0 :cy 0 :r 7 :fill "green"}]]]])
+
+(defmacro ->js
+  [& forms]
+  (let [res (squint/compile-string (str/join "\n" forms))]
+    res))
