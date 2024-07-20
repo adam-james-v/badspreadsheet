@@ -105,24 +105,6 @@
                   (for [item row]
                     [:td {:style {:padding 0 :margin 0}} item]))))))
 
-(def button-style-map
-  {:height        "100%"
-   :aspect-ratio  "1/1"
-   :box-sizing    "border-box"
-   :border        "1px solid #222"
-   :border-radius "2px"
-   :font-family   "monospace"
-   :font-size     "11pt"
-   :cursor        "pointer"})
-
-(defn button [label tooltip action]
-  [:button.prevent-cursor-move
-   {:title tooltip
-    :onclick action
-    :style
-    button-style-map}
-   label])
-
 (defn- cursor-icon
   [w h]
   (let [t      5
@@ -359,130 +341,11 @@
                                :opacity 0.2}])))
               (filter c/loc? (keys @c/global-cells)))]
        (when overlay-on
-         (map #(render-refs % state) (vals entities))))))
-
-  #_
-  (let []
-    (concat
-     (map-indexed (fn [idx [x y]]
-                    (let [left (* x size)
-                          top  (* y size)]
-                      [:div {:id    (format "location_ref_%s_%s" id idx)
-                             :style {:position   "absolute"
-                                     :left       left
-                                     :top        top
-                                     :box-sizing "border-box"
-                                     :border     "1px solid limegreen"
-                                     :width      size
-                                     :height     size}}]))
-                  location-refs)
-     ;; render cell refs
-     (map-indexed (fn [idx loc]
-                    (ref-indicator
-                     (format "cell_ref_%s_%s" id idx)
-                     [x y]
-                     loc
-                     global-size))
-                  cell-refs))))
+         (map #(render-refs % state) (vals entities)))))))
 
 (defn image
   [file-path]
   [:img {:src (format "data:image/png;base64, %s" (encode-image-to-base64 file-path))}])
-
-(defn cursor-old
-  [{:keys [location size]} {:keys [waypoints] :as state}]
-  (let [{camera      :camera
-         global-size :size
-         active      :active} state
-        camera-loc            (:location camera)
-        [ox oy]               location
-        [x y]                 (mapv - location camera-loc)
-        [nx ny]               size
-        button-bar-height     30 ;; Example height for the button bar
-        cursor-width          (* nx global-size)
-        cursor-height         (* ny global-size)
-        button-bar-style      {:position        "absolute"
-                               :top             (+ (* (+ y 0.75) global-size) cursor-height)
-                               :left            (+ (* x global-size) (/ cursor-width 2))
-                               :transform       "translateX(-50%)" ;; Adjust for exact centering
-                               :height          button-bar-height
-                               :display         "flex"
-                               :flex-direction  "row"
-                               :gap             "5px"
-                               :align-items     "center"
-                               :justify-content "center"
-                               :width           "auto" ;; Adjust width as needed
-                               :margin          "0 auto"
-                               :box-sizing      "border-box"}]
-    [:<>
-     [:div#insert-target {:hx-swap-oob "afterend"}]
-     [:div#cursor.smooth
-      {:grid-size         global-size
-       :camera-location   (str/join "," (get-in state [:camera :location]))
-       :cursor-location   (str/join "," location)
-       :cursor-size       (str/join "," size)
-       :active-element-id active
-       :style             {:z-index  "2000"
-                           :position "relative"}}
-      (let [pos-indicator-str      (format "[%s %s]" ox oy)
-            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
-        [:div {:style {:position    "absolute"
-                       :user-select "none"
-                       :left        (* (- x approx-pos-indicator-w) global-size)
-                       :top         (* (dec y) global-size)}}
-         pos-indicator-str])
-      (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
-        [:div {:style {:position    "absolute"
-                       :user-select "none"
-                       :left        (* (+ x nx) global-size)
-                       :top         (* (+ y ny) global-size)}}
-         pos-indicator-str])
-      [:div {:style {:box-sizing     "border-box"
-                     :border-radius  4
-                     :position       "absolute"
-                     :pointer-events "none"
-                     :margin         -6
-                     :left           (* x global-size)
-                     :top            (* y global-size)
-                     :width          cursor-width
-                     :height         cursor-height}}
-       (cursor-icon cursor-width cursor-height)]
-      ;; Button bar below the cursor
-      [:div.prevent-cursor-move {:style button-bar-style}
-       (button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
-       (button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
-       (button "⌖" "Add/Remove the Waypoint at top-left of the cursor." (fe-send {:dispatch :toggle-waypoint :position location}))
-       #_(button "❌" "Delete this Element." (fe-send {:dispatch :delete}))
-       [:button {:label   "Delete this Element."
-                 :onclick (fe-send {:dispatch :delete})
-                 :style   (merge button-style-map {:font-size "8pt"})}
-        "❌"]
-       (when active
-         [:div {:style {:font-size   "8pt"
-                        :width       0
-                        :user-select "none"}}
-          (str (:display (get-in state [:entities active])))])]
-      (when (and (> nx 2) (> ny 1))
-        [:button#drag-handle
-         {:onMouseDown "toggleDragHandle()"
-          :style       {:cursor        "grab"
-                        :position      "absolute"
-                        :user-select   "none"
-                        :left          (* (+ x (dec nx)) global-size)
-                        :top           (* (+ y (dec ny)) global-size)
-                        :height        20
-                        :padding       0
-                        :aspect-ratio  "1/1"
-                        :box-sizing    "border-box"
-                        :border        "1px solid #222"
-                        :border-radius "3px"
-                        :font-family   "monospace"
-                        :font-size     "8pt"}}
-         "::"])
-      (information-overlay state)
-      (into [:div#waypoints
-             (home-point state)]
-            (mapv #(waypoint %1 state) (vals waypoints)))]]))
 
 (defn maybe-read-string [s]
   (try
@@ -782,7 +645,7 @@
          [:script (wrap-fn (clj->js `(createEditorInstance ~id)))])
        [:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
 
-(def button-style-map2
+(def button-style-map
   {:width         "40px"
    :aspect-ratio  "1/1"
    :box-sizing    "border-box"
@@ -792,13 +655,13 @@
    :font-size     "11pt"
    :cursor        "pointer"})
 
-(defn button2
-  ([label tooltip action] (button2 {} label tooltip action))
+(defn button
+  ([label tooltip action] (button {} label tooltip action))
   ([style label tooltip action]
    [:button.prevent-cursor-move
     {:title   tooltip
      :onclick action
-     :style   (merge button-style-map2 style)}
+     :style   (merge button-style-map style)}
     label]))
 
 (defn button-bar
@@ -815,12 +678,12 @@
                           :margin          "0 auto"
                           :box-sizing      "border-box"}]
     [:div.prevent-cursor-move {:style button-bar-style}
-     (button2 "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
+     (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
      #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
      #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
-     (button2 "⌖" "Add/Remove the Waypoint at top-left of the cursor."
+     (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
               (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
-     (button2 {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
+     (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
      [:div {:style {:font-size   "8pt"
                     :width       0
                     :user-select "none"}}

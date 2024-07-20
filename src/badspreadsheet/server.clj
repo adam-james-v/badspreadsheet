@@ -20,17 +20,10 @@
    [:link {:rel  "stylesheet"
            :type "text/css"
            :href "resources/css/style.css"}]
-   [:link {:rel  "stylesheet"
-           :href "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"}]
    [:script #_(slurp "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js") {:src "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"}]
    [:script {:src "resources/js/htmx.min.js"}]
    [:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
    [:script {:src "resources/js/ws.js"}]
-   [:script {:src "resources/js/squint.core.umd.js"}]
-   [:script "globalThis._sc = squint.core;"]
-   [:script {:src         "resources/js/es-module-shims.js"
-             :async       true
-             :crossorigin "anonymous"}]
    [:script {:type "importmap"} [:hiccup/raw-html (slurp (io/resource "js/codemirror-import-map.json"))]]
    ;; my scripts
    [:script {:src "resources/js/util.js"}]
