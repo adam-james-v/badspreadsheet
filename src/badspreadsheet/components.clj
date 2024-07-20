@@ -1,6 +1,6 @@
 (ns badspreadsheet.components
   (:require
-   [badspreadsheet.cells3 :as c]
+   [badspreadsheet.cell :as c]
    [cheshire.core :as json]
    [clojure.data.codec.base64 :as b64]
    [clojure.java.io :as io]
@@ -327,19 +327,20 @@
                       (tf/translate [0 (* 30 idx)]))))
               (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
             (tf/translate [20 60]))
-        (into [:g]
-              (map (fn [[x y]]
-                     (let [left (* (- x cx) size)
-                           top  (* (- y cy) size)]
-                       [:rect {:id      (format "location_ref_%s_%s" x y)
-                               :width   size
-                               :height  size
-                               :x       left
-                               :y       top
-                               :stroke  "purple"
-                               :fill    "lavender"
-                               :opacity 0.2}])))
-              (filter c/loc? (keys @c/global-cells)))]
+        ;;
+        #_(into [:g]
+                (map (fn [[x y]]
+                       (let [left (* (- x cx) size)
+                             top  (* (- y cy) size)]
+                         [:rect {:id      (format "location_ref_%s_%s" x y)
+                                 :width   size
+                                 :height  size
+                                 :x       left
+                                 :y       top
+                                 :stroke  "purple"
+                                 :fill    "lavender"
+                                 :opacity 0.2}])))
+                (filter identity #_c/loc? (keys @c/cells)))]
        (when overlay-on
          (map #(render-refs % state) (vals entities)))))))
 

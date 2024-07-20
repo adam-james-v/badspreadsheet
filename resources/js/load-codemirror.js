@@ -4,14 +4,14 @@ import { EditorState } from  '@codemirror/state';
 import { syntaxHighlighting, defaultHighlightStyle, foldGutter } from '@codemirror/language';
 
 let theme = EditorView.theme({
-  "&.cm-editor" : {"background": "white",
+  "&.cm-editor" : {"background": "lavender",
                    "border-radius": "1px"},
   ".cm-content": {whitespace: "pre-wrap",
                   passing: "10px 0",
                   flex: "1 1 0"},
 
   "&.cm-focused": {outline: "0 !important",
-                   "background": "aliceblue"},
+                   "background": "lavender"},
   ".cm-line": {"padding": "0 4px",
                "line-height": "1.2",
                "font-size": "10.5pt",
@@ -1030,20 +1030,7 @@ class DrawingCanvas extends HTMLElement {
   }
 }
 
-
 window.customElements.define('drawing-canvas', DrawingCanvas);
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Run the function on page load.
 window.addEventListener('load', () => sendPageExtents(globalGridSize));
@@ -1060,17 +1047,9 @@ window.attachEntityListeners = (id) => {
   attachEntityListeners(id);
 }
 
-// window.initKeyPressListener = () => {
-//   initKeyPressListener();
-// }
-
 window.initGamepadListener = () => {
   initGamepadListener();
 }
-
-// window.initMouseEventsListener = (gridSize) => {
-//   initMouseEventsListener(gridSize);
-// }
 
 window.makeNumberInput = (id) => {
   makeNumberInput(id);
@@ -1082,9 +1061,6 @@ window.setElementFocus = (id) => {
 
 window.unfocusActiveElement = () => {
   unfocusActiveElement();
-}
-window.send = (body) => {
-  send(body);
 }
 
 window.toggleDragHandle = () => {

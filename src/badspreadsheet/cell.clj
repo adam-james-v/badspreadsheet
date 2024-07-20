@@ -1,4 +1,4 @@
-(ns badspreadsheet.cells4
+(ns badspreadsheet.cell
   (:require
    [badspreadsheet.machines :as machines]
    [clojure.edn :as edn]
@@ -194,24 +194,27 @@
                             (let ~let-binding
                               ~@inner-form))
          :refs           (vec (mapcat second refs))})
-      (let [[do? & wrapped-inner
+      #_(let [[do? & wrapped-inner
              :as inner] form
             inner-form  (if (= do? 'do)
                           wrapped-inner
-                          [inner])]
-        {:form           form
-         :processed-form (if (contains-symbol? inner-form)
-                           inner-form
-                           `(fn [] ~@inner-form))}))))
+                          inner)]
+        (println "INNER: " inner-form wrapped-inner do?))
+      {:form           form
+       :processed-form (if false #_(contains-symbol? form)
+                         form
+                         `(fn [] ~@form))})))
 
 (defn formula
   "Given a form string, produce a working cell. Returns the newly created cell's ID."
   ([position form-or-str] (formula position [2 4] form-or-str))
   ([position size form-or-str]
+   (println "FORMULA: " position size form-or-str)
    (let [form                          (if (string? form-or-str)
                                          (edn/read-string (format "(do %s)" form-or-str))
                                          form-or-str)
          {:keys [processed-form refs]} (process-form position form)
+         _ (println "PROCESSED: " processed-form)
          f                             (eval processed-form)
          id                            (get-in @cells [:grid position] (new-cell-id))
          size                          (get-in @cells [:machines id :size] size)]

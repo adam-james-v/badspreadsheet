@@ -2,7 +2,7 @@
   (:require
    [badspreadsheet.server :as server]
    [badspreadsheet.components :as bc]
-   [badspreadsheet.cells4 :as c]))
+   [badspreadsheet.cell :as c]))
 
 (def state (atom {:active    nil
                   :size      20
