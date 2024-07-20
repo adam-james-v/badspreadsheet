@@ -1,10 +1,8 @@
 (ns badspreadsheet.spreadsheet
   (:require
-   [badspreadsheet.user :as bu]
-   [badspreadsheet.components :as bc]
    [badspreadsheet.cells3 :as c]
+   [badspreadsheet.components :as bc]
    [badspreadsheet.server :as server]
-   [clojure.walk :as walk]
    [clojure.core.async :as a
     :refer [chan go-loop
             pub sub unsub
@@ -15,7 +13,6 @@
    [clojure.set :as set]
    [clojure.string :as str]
    [clojure.walk :as walk]
-   [huff2.core :as h]
    [overtone.at-at :as at]
    [squint.compiler]))
 

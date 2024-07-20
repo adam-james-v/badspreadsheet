@@ -163,37 +163,38 @@
 
 (defn home-point
   [{:keys [size camera extents]}]
-  (let [c                 (:location camera)
-        [renderx rendery] (mapv #(* -1 %) c)
-        [ex ey]           extents
-        px                (* size (max 0.25 (min renderx (- ex 0.25))))
-        py                (* size (max 0.25 (min rendery (- ey 0.25))))]
-    (when (visible? c extents [0 0])
-      [:div#origin
-       {:style   {:position "absolute"
-                  :left px
-                  :top  py}}
-       [:div
-        {:style {:width         12
-                 :height        12
-                 :left          (- 6)
-                 :top           (- 6)
-                 :box-sizing    "border-box"
-                 :border-radius 6
-                 :background    "linear-gradient(35deg, #811CFB 10%, #F4ACF0 100%)"
-                 :position      "relative"}}]
-       [:div
-        {:onclick (fe-send {:dispatch :set-camera :position [(- (int (/ ex 2))) (- (int (/ ey 2)))]})
-         :style {:cursor          "crosshair"
-                 :width           15
-                 :height          15
-                 :left            (- 7.5)
-                 :top             (- (+ 7.5 12))
-                 :box-sizing      "border-box"
-                 :border          "1.5px solid rgba(235, 215, 235, 0.4)"
-                 :border-radius   7.5
-                 :backdrop-filter "blur(1px)"
-                 :position        "relative"}}]])))
+  (when extents
+    (let [c                 (:location camera)
+          [renderx rendery] (mapv #(* -1 %) c)
+          [ex ey]           extents
+          px                (* size (max 0.25 (min renderx (- ex 0.25))))
+          py                (* size (max 0.25 (min rendery (- ey 0.25))))]
+      (when (visible? c extents [0 0])
+        [:div#origin
+         {:style   {:position "absolute"
+                    :left px
+                    :top  py}}
+         [:div
+          {:style {:width         12
+                   :height        12
+                   :left          (- 6)
+                   :top           (- 6)
+                   :box-sizing    "border-box"
+                   :border-radius 6
+                   :background    "linear-gradient(35deg, #811CFB 10%, #F4ACF0 100%)"
+                   :position      "relative"}}]
+         [:div
+          {:onclick (fe-send {:dispatch :set-camera :position [(- (int (/ ex 2))) (- (int (/ ey 2)))]})
+           :style {:cursor          "crosshair"
+                   :width           15
+                   :height          15
+                   :left            (- 7.5)
+                   :top             (- (+ 7.5 12))
+                   :box-sizing      "border-box"
+                   :border          "1.5px solid rgba(235, 215, 235, 0.4)"
+                   :border-radius   7.5
+                   :backdrop-filter "blur(1px)"
+                   :position        "relative"}}]]))))
 
 (defn random-waypoint-color
   []
@@ -306,58 +307,59 @@
 
 (defn information-overlay
   [{:keys [entities overlay-on waypoints extents size camera] :as state}]
-  (let [[cx cy] (:location camera)]
-    (into
-     [:svg#information-overlay
-      {:style {:pointer-events "none"
-               :width          "100vw"
-               :height         "100vh"
-               :position       "absolute"}}
-      [:g#overlay-controls
-       (-> (el/rect 30 30)
-           (tf/translate [20 20])
-           (tf/style {:style        {:pointer-events "auto"}
-                      :label        "Toggle Information Overlay."
-                      :onclick      (fe-send {:dispatch :toggle-overlay})
-                      :position     "absolute"
-                      :bottom       "-10px"
-                      :stroke-width 1
-                      :stroke       "black"
-                      :fill         "#abcabc"}))]
-      (-> (into
-           [:g {:id "waypoint-collection"}]
-           (map-indexed
-            (fn [idx {:keys [colour position label]}]
-              (let [[wx wy] position
-                    [ex ey] extents]
-                (-> (el/g
-                     (-> (el/circle 10)
-                         (tf/style {:style        {:pointer-events "auto"}
-                                    :fill         colour
-                                    :stroke       "black"
-                                    :stroke-width 2
-                                    :onclick      (fe-send {:dispatch :set-camera
-                                                            :position [(- wx (int (/ ex 2)))
-                                                                       (- wy (int (/ ey 2)))]})}))
-                     (-> (el/text label) (tf/translate [40 1])))
-                    (tf/translate [0 (* 30 idx)]))))
-            (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
-          (tf/translate [20 60]))
-      (into [:g]
-            (map (fn [[x y]]
-                   (let [left (* (- x cx) size)
-                         top  (* (- y cy) size)]
-                     [:rect {:id      (format "location_ref_%s_%s" x y)
-                             :width   size
-                             :height  size
-                             :x       left
-                             :y       top
-                             :stroke  "purple"
-                             :fill    "lavender"
-                             :opacity 0.2}])))
-            (filter c/loc? (keys @c/global-cells)))]
-     (when overlay-on
-       (map #(render-refs % state) (vals entities)))))
+  (when overlay-on
+    (let [[cx cy] (:location camera)]
+      (into
+       [:svg#information-overlay
+        {:style {:pointer-events "none"
+                 :width          "100vw"
+                 :height         "100vh"
+                 :position       "absolute"}}
+        [:g#overlay-controls
+         (-> (el/rect 30 30)
+             (tf/translate [20 20])
+             (tf/style {:style        {:pointer-events "auto"}
+                        :label        "Toggle Information Overlay."
+                        :onclick      (fe-send {:dispatch :toggle-overlay})
+                        :position     "absolute"
+                        :bottom       "-10px"
+                        :stroke-width 1
+                        :stroke       "black"
+                        :fill         "#abcabc"}))]
+        (-> (into
+             [:g {:id "waypoint-collection"}]
+             (map-indexed
+              (fn [idx {:keys [colour position label]}]
+                (let [[wx wy] position
+                      [ex ey] extents]
+                  (-> (el/g
+                       (-> (el/circle 10)
+                           (tf/style {:style        {:pointer-events "auto"}
+                                      :fill         colour
+                                      :stroke       "black"
+                                      :stroke-width 2
+                                      :onclick      (fe-send {:dispatch :set-camera
+                                                              :position [(- wx (int (/ ex 2)))
+                                                                         (- wy (int (/ ey 2)))]})}))
+                       (-> (el/text label) (tf/translate [40 1])))
+                      (tf/translate [0 (* 30 idx)]))))
+              (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
+            (tf/translate [20 60]))
+        (into [:g]
+              (map (fn [[x y]]
+                     (let [left (* (- x cx) size)
+                           top  (* (- y cy) size)]
+                       [:rect {:id      (format "location_ref_%s_%s" x y)
+                               :width   size
+                               :height  size
+                               :x       left
+                               :y       top
+                               :stroke  "purple"
+                               :fill    "lavender"
+                               :opacity 0.2}])))
+              (filter c/loc? (keys @c/global-cells)))]
+       (when overlay-on
+         (map #(render-refs % state) (vals entities))))))
 
   #_
   (let []
@@ -387,7 +389,7 @@
   [file-path]
   [:img {:src (format "data:image/png;base64, %s" (encode-image-to-base64 file-path))}])
 
-(defn cursor
+(defn cursor-old
   [{:keys [location size]} {:keys [waypoints] :as state}]
   (let [{camera      :camera
          global-size :size
@@ -692,3 +694,182 @@
   [& forms]
   (let [res (squint/compile-string (str/join "\n" forms))]
     res))
+
+(defn cell
+  [{:keys [id position size content output latest-output]} state & {:keys [init] :or {init false}}]
+  (let [{global-size :size} state
+        enable-editor?      true
+        [x y]               position
+        [nx ny]             size
+        display             :content
+        w                   (* nx global-size)
+        h                   (* ny global-size)
+        left                (* x global-size)
+        top                 (* y global-size)
+        editor-style        {:background-color "rgba(255,255,255,0.125);"
+                             :box-sizing       "border-box"
+                             :overflow         "hidden"
+                             :position         "absolute"
+                             :left             left
+                             :top              top
+                             :width            w
+                             :height           h
+                             :z-index          "1000"}
+        wrap-fn             (if init
+                              wrap-js-in-content-loaded
+                              identity)]
+    [:div {:cursor "auto"
+           :id     (format "entity%s" id)}
+     [:div
+      {:id    (format "movable%s" id)
+       :style (merge
+               editor-style
+               (when enable-editor?
+                 {:overflow "visible"
+                  :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
+      ;; value render container
+      #_[:div {:style {:height  (* ny global-size)
+                       :display (if (#{:none :content :control} display) "none" "block")}}
+         (render-value2 {:id      id
+                         :value   (c/value id)
+                         :display display})]
+      ;; content string container
+      [:div {:id    (str id)
+             :style {:display (if enable-editor? "block" "none")
+                     :height  (* ny global-size)}}
+       [:hiccup/raw-html content]]
+      ;; value
+      [:div "Last Output: " (render-value latest-output)]
+      [:div "---- Output: " (render-value output)]
+      ;; ID tag
+      [:div
+       {:style {:position  "absolute"
+                :top       0
+                :right     0
+                :padding   2
+                :font-size "7pt"}}
+       "ID:" id]
+      ;; scripts
+      [:<>
+          #_(when true #_(= display :control)
+            (cond
+              (number-content? content)
+              [:script (wrap-fn (clj->js `(makeNumberInput ~id)))]
+
+              (points-content? content)
+              [:points-editor
+               {:id          id
+                :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
+
+              (touch-tilt-control? content)
+              [:touch-tilt-control
+               {:style {:display "block"
+                        :width   "100%"
+                        :height  "100%"}
+                :id    id}]
+
+              (drawing-canvas? content)
+              [:drawing-canvas
+               {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
+                :style       {:display "block"
+                              :width   "100%"
+                              :height  "100%"}
+                :id          id}]
+
+              :else nil))]
+      [:<>
+       (when enable-editor?
+         [:script (wrap-fn (clj->js `(createEditorInstance ~id)))])
+       [:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
+
+(def button-style-map2
+  {:width         "40px"
+   :aspect-ratio  "1/1"
+   :box-sizing    "border-box"
+   :border        "1px solid #222"
+   :border-radius "2px"
+   :font-family   "monospace"
+   :font-size     "11pt"
+   :cursor        "pointer"})
+
+(defn button2
+  ([label tooltip action] (button2 {} label tooltip action))
+  ([style label tooltip action]
+   [:button.prevent-cursor-move
+    {:title   tooltip
+     :onclick action
+     :style   (merge button-style-map2 style)}
+    label]))
+
+(defn button-bar
+  [state]
+  (let [cursor-pos       (get-in state [:cursor :location])
+        button-bar-style {:position        "fixed"
+                          :bottom          "20px"
+                          :display         "flex"
+                          :flex-direction  "row"
+                          :gap             "5px"
+                          :align-items     "center"
+                          :justify-content "center"
+                          :width           "100%"
+                          :margin          "0 auto"
+                          :box-sizing      "border-box"}]
+    [:div.prevent-cursor-move {:style button-bar-style}
+     (button2 "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
+     #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
+     #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
+     (button2 "⌖" "Add/Remove the Waypoint at top-left of the cursor."
+              (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
+     (button2 {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
+     [:div {:style {:font-size   "8pt"
+                    :width       0
+                    :user-select "none"}}
+      (str (:display (get-in state [:entities (:active state)])))]]))
+
+(defn cursor
+  [{:keys [location size]} {:keys [waypoints] :as state}]
+  (let [{camera      :camera
+         global-size :size
+         active      :active} state
+        camera-loc            (:location camera)
+        [ox oy]               location
+        [x y]                 (mapv - location camera-loc)
+        [nx ny]               size
+        cursor-width          (* nx global-size)
+        cursor-height         (* ny global-size)]
+    [:<>
+     [:div#insert-target {:hx-swap-oob "afterend"}]
+     [:div#cursor.smooth
+      {:grid-size         global-size
+       :camera-location   (str/join "," (get-in state [:camera :location]))
+       :cursor-location   (str/join "," location)
+       :cursor-size       (str/join "," size)
+       :active-element-id active
+       :style             {:z-index  "2000"
+                           :position "relative"}}
+      (let [pos-indicator-str      (format "[%s %s]" ox oy)
+            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
+        [:div {:style {:position    "absolute"
+                       :user-select "none"
+                       :left        (* (- x approx-pos-indicator-w) global-size)
+                       :top         (* (dec y) global-size)}}
+         pos-indicator-str])
+      (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
+        [:div {:style {:position    "absolute"
+                       :user-select "none"
+                       :left        (* (+ x nx) global-size)
+                       :top         (* (+ y ny) global-size)}}
+         pos-indicator-str])
+      [:div {:style {:box-sizing     "border-box"
+                     :border-radius  4
+                     :position       "absolute"
+                     :pointer-events "none"
+                     :margin         -6
+                     :left           (* x global-size)
+                     :top            (* y global-size)
+                     :width          cursor-width
+                     :height         cursor-height}}
+       (cursor-icon cursor-width cursor-height)]
+      (into [:div#waypoints
+             (home-point state)]
+            (mapv #(waypoint %1 state) (vals waypoints)))]]))

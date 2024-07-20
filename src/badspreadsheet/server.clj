@@ -20,6 +20,9 @@
    [:link {:rel  "stylesheet"
            :type "text/css"
            :href "resources/css/style.css"}]
+   [:link {:rel  "stylesheet"
+           :href "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"}]
+   [:script #_(slurp "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js") {:src "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"}]
    [:script {:src "resources/js/htmx.min.js"}]
    [:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
    [:script {:src "resources/js/ws.js"}]
@@ -29,8 +32,12 @@
              :async       true
              :crossorigin "anonymous"}]
    [:script {:type "importmap"} [:hiccup/raw-html (slurp (io/resource "js/codemirror-import-map.json"))]]
+   ;; my scripts
+   [:script {:src "resources/js/util.js"}]
+   ;; codemirror script must load as a module due to import statements in the implementation
    [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/load-codemirror.js"))]]
-   [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/movable.js"))]]])
+   [:script {:src "resources/js/mouse.js" :defer true}]
+   [:script {:src "resources/js/keyboard.js" :defer true}]])
 
 (defn page-body
   [content]
@@ -45,9 +52,7 @@
   (huff/page {:allow-raw true} [:<> head (page-body (or content [:div#broadcast-target "broadcast here!"]))]))
 
 ;; websocket handling
-(def channels (atom #{}))
-
-(defn connect! [channel]
+(def channels (atom #{}))(defn connect! [channel]
   (println "Channel Opened")
   (swap! channels conj channel))
 
@@ -109,16 +114,13 @@
         resource                    (io/resource (str partial-path "/" file))]
     {:status  200
      :headers {"Content-Type" (format (if (#{"png" "jpeg" "jpg"} ext) "image/%s" "text/%s") (if (= ext "js") "javascript" ext))}
-     :body    (if resource
+     :body    (slurp resource)
+     #_       (if resource
                 (slurp resource)
                 (badspreadsheet.components/file-to-byte-array file))}))
 
 (def default-routes
-  {["/tmp" :get]                           (fn [_] (println "HEY")
-                                             {:headers {"Content-Type" "image/png"}
-                                              :body    (badspreadsheet.components/file-to-byte-array "_tmp.png")
-                                              #_(.getBytes (slurp "_tmp.png"))})
-   ["/resources/:partial-path/:file" :get] resource-response
+  {["/resources/:partial-path/:file" :get] resource-response
    ["/socket" :get]                        ws-handler
    ["/" :get]                              (fn [_] {:body (page page-head [[:div#broadcast-target "Broadcast Stuff Here!"]])})
    ["/data" :post]                         (fn [req]

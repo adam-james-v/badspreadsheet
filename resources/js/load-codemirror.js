@@ -3,19 +3,9 @@ import { EditorView, drawSelection, keymap } from  '@codemirror/view';
 import { EditorState } from  '@codemirror/state';
 import { syntaxHighlighting, defaultHighlightStyle, foldGutter } from '@codemirror/language';
 
-function send(body) {
-  fetch('/data', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-}
-
 let theme = EditorView.theme({
-  "&.cm-editor" : {"background": "aliceblue",
-                   "border-radius": "7px"},
+  "&.cm-editor" : {"background": "white",
+                   "border-radius": "1px"},
   ".cm-content": {whitespace: "pre-wrap",
                   passing: "10px 0",
                   flex: "1 1 0"},
@@ -231,274 +221,232 @@ function toggleDragHandle() {
   dragHandleActive = !dragHandleActive;
 }
 
-function getGridSize() {
-  const cursorElement = document.getElementById('cursor');
-  return Number(cursorElement.getAttribute("grid-size"));
-}
-
-function getCameraLocation() {
-  const cursorElement = document.getElementById('cursor');
-  const cameraLocation = cursorElement.getAttribute('camera-location');
-  return cameraLocation.split(',').map(Number);
-}
-
-function getCursorLocation() {
-  const cursorElement = document.getElementById('cursor');
-  const cursorLocation = cursorElement.getAttribute('cursor-location');
-  return cursorLocation.split(',').map(Number);
-}
-
-function getCursorSize() {
-  const cursorElement = document.getElementById('cursor');
-  const cursorSize = cursorElement.getAttribute('cursor-size');
-  return cursorSize.split(',').map(Number);
-}
-
-function getActiveElementID() {
-  const cursorElement = document.getElementById('cursor');
-  return cursorElement.getAttribute('active-element-id');
-}
-
-function addVectors(v1, v2) {
-  if (v1.length !== v2.length) {
-    throw new Error('Vectors must be of the same length');
-  }
-  return v1.map((val, index) => val + v2[index]);
-}
-
-function subtractVectors(v1, v2) {
-  if (v1.length !== v2.length) {
-    throw new Error('Vectors must be of the same length');
-  }
-  return v1.map((val, index) => val - v2[index]);
-}
-
-let bg = document.getElementById('bg');
+let bg = document.getElementById('cell-container');
 
 let globalGridSize = 20;
 
-function clickGridLocation(e) {
-  const gridSize = getGridSize();
-  const rect = bg.getBoundingClientRect();
-  const x = e.clientX - rect.left; // x position within the element.
-  const y = e.clientY - rect.top;  // y position within the element.
-  let cameraLoc = getCameraLocation();
-  const gridX = Math.floor(x / gridSize) + cameraLoc[0];
-  const gridY = Math.floor(y / gridSize) + cameraLoc[1];
-  return { x: gridX, y: gridY };
-}
+// function clickGridLocation(e) {
+//   const gridSize = getGridSize();
+//   const rect = bg.getBoundingClientRect();
+//   const x = e.clientX - rect.left; // x position within the element.
+//   const y = e.clientY - rect.top;  // y position within the element.
+//   let cameraLoc = getCameraLocation();
+//   const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+//   const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+//   return { x: gridX, y: gridY };
+// }
 
-function clickIsInCursor(e) {
-  let clickLoc = clickGridLocation(e);
-  let cursorLoc = getCursorLocation(e);
-  let cursorSize = getCursorSize(e);
+// function clickIsInCursor(e) {
+//   let clickLoc = clickGridLocation(e);
+//   let cursorLoc = getCursorLocation(e);
+//   let cursorSize = getCursorSize(e);
 
-  let x1 = cursorLoc[0];
-  let x2 = cursorLoc[0] + cursorSize[0];
-  let y1 = cursorLoc[1];
-  let y2 = cursorLoc[1] + cursorSize[1];
-  return ( clickLoc.x >= x1 && clickLoc.x <= x2 ) && ( clickLoc.y >= y1 && clickLoc.y <= y2 );
-}
+//   let x1 = cursorLoc[0];
+//   let x2 = cursorLoc[0] + cursorSize[0];
+//   let y1 = cursorLoc[1];
+//   let y2 = cursorLoc[1] + cursorSize[1];
+//   return ( clickLoc.x >= x1 && clickLoc.x <= x2 ) && ( clickLoc.y >= y1 && clickLoc.y <= y2 );
+// }
 
-function elementIsActive() {
-  return getActiveElementID() !== null
-}
+// function elementIsActive() {
+//   return getActiveElementID() !== null
+// }
 
-function hasPreventMove(el) {
-  const cl = el.getAttribute("class");
-  return cl !== null && cl.includes("prevent-cursor-move");
-}
+// function hasPreventMove(el) {
+//   const cl = el.getAttribute("class");
+//   return cl !== null && cl.includes("prevent-cursor-move");
+// }
 
-function isDragHandle(el) {
-  const id = el.getAttribute("id");
-  return id !== null && id.includes("drag-handle");
-}
+// function isDragHandle(el) {
+//   const id = el.getAttribute("id");
+//   return id !== null && id.includes("drag-handle");
+// }
 
-// e.target.hasAttribute("onclick")
-// e.target.tagName === "BUTTON"
-function shouldPreventMove(e) {
-  return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
-}
+// // e.target.hasAttribute("onclick")
+// // e.target.tagName === "BUTTON"
+// function shouldPreventMove(e) {
+//   return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
+// }
 
-function initMouseEventsListener(gridSize) {
-  globalGridSize = gridSize;
-  let lastGridX = -1;
-  let lastGridY = -1;
-  let mouseDown = false;
-  let dragging = false;
-  let startLocX = -1;
-  let startLocY = -1;
-  let el = document.getElementById('bg');
+// function initMouseEventsListener(gridSize) {
+//   globalGridSize = gridSize;
+//   let lastGridX = -1;
+//   let lastGridY = -1;
+//   let mouseDown = false;
+//   let dragging = false;
+//   let startLocX = -1;
+//   let startLocY = -1;
+//   let el = document.getElementById('cell-container');
 
-  document.addEventListener('mousedown', (e) => {
-    // Ignore clicks on buttons and other specified elements
-    //if (hasPreventMove(e.target) && !dragHandleActive) { return };
+//   document.addEventListener('mousedown', (e) => {
+//     // Ignore clicks on buttons and other specified elements
+//     //if (hasPreventMove(e.target) && !dragHandleActive) { return };
 
-    if (shouldPreventMove(e)) { return };
+//     if (shouldPreventMove(e)) { return };
 
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left; // x position within the element.
-    const y = e.clientY - rect.top;  // y position within the element.
+//     const rect = el.getBoundingClientRect();
+//     const x = e.clientX - rect.left; // x position within the element.
+//     const y = e.clientY - rect.top;  // y position within the element.
 
-    let cameraLoc = getCameraLocation();
-    let loc = dragHandleActive
-        ? subtractVectors(getCursorLocation(), cameraLoc)
-        : [-1, -1];
+//     let cameraLoc = getCameraLocation();
+//     let loc = dragHandleActive
+//         ? subtractVectors(getCursorLocation(), cameraLoc)
+//         : [-1, -1];
 
-    startLocX = dragHandleActive
-      ? loc[0]
-      : Math.floor(x / gridSize) + cameraLoc[0];
+//     startLocX = dragHandleActive
+//       ? loc[0]
+//       : Math.floor(x / gridSize) + cameraLoc[0];
 
-    startLocY = dragHandleActive
-      ? loc[1]
-      : Math.floor(y / gridSize) + cameraLoc[1];
+//     startLocY = dragHandleActive
+//       ? loc[1]
+//       : Math.floor(y / gridSize) + cameraLoc[1];
 
-    lastGridX = startLocX;
-    lastGridY = startLocY;
-    mouseDown = true;
-    dragging = isDragHandle(e.target);
-  });
+//     lastGridX = startLocX;
+//     lastGridY = startLocY;
+//     mouseDown = true;
+//     dragging = isDragHandle(e.target);
+//   });
 
-  document.addEventListener('mouseup', (e) => {
-    mouseDown = false;
-    dragging = false;
-    dragHandleActive = false;
-    // Ignore clicks on buttons and other specified elements
-    if (shouldPreventMove(e)) { return }
-  });
+//   document.addEventListener('mouseup', (e) => {
+//     mouseDown = false;
+//     dragging = false;
+//     dragHandleActive = false;
+//     // Ignore clicks on buttons and other specified elements
+//     if (shouldPreventMove(e)) { return }
+//   });
 
-  document.addEventListener('click', (e) => {
-    // Ignore clicks on buttons and other specified elements
-    if (shouldPreventMove(e)) { return }
+//   document.addEventListener('click', (e) => {
+//     // Ignore clicks on buttons and other specified elements
+//     if (shouldPreventMove(e)) { return }
 
-    if (!dragging) {
-      // Handle click event here, as there was no mouse movement
-      sendCursorData([startLocX, startLocY], [0, 0]);
-    }
-  });
+//     if (!dragging) {
+//       // Handle click event here, as there was no mouse movement
+//       sendCursorData([startLocX, startLocY], [0, 0]);
+//     }
+//   });
 
-  document.addEventListener('mousemove', (e) => {
-    if (!mouseDown || ( !dragging && shouldPreventMove(e) )) return; // Do nothing if the mouse is not pressed down
+//   document.addEventListener('mousemove', (e) => {
+//     if (!mouseDown || ( !dragging && shouldPreventMove(e) )) return; // Do nothing if the mouse is not pressed down
 
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left; // x position within the element.
-    const y = e.clientY - rect.top;  // y position within the element.
-    let cameraLoc = getCameraLocation();
-    const gridX = Math.floor(x / gridSize) + cameraLoc[0];
-    const gridY = Math.floor(y / gridSize) + cameraLoc[1];
-    let startSize = getCursorSize();
-    let startSizeX = startSize[0];
-    let startSizeY = startSize[1];
+//     const rect = el.getBoundingClientRect();
+//     const x = e.clientX - rect.left; // x position within the element.
+//     const y = e.clientY - rect.top;  // y position within the element.
+//     let cameraLoc = getCameraLocation();
+//     const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+//     const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+//     let startSize = getCursorSize();
+//     let startSizeX = startSize[0];
+//     let startSizeY = startSize[1];
 
-    if (dragging &&
-        (gridX !== lastGridX || gridY !== lastGridY)) {
-      lastGridX = gridX;
-      lastGridY = gridY;
-      let sizeX = (gridX - startLocX + 1);
-      let sizeY = (gridY - startLocY + 1);
-      let location = dragHandleActive ? [(gridX - startSizeX + 1), (gridY - startSizeY + 1)] : [startLocX, startLocY];
-      let size = dragHandleActive ? [0, 0] : [sizeX, sizeY];
-      // Send data to the server in the 'dragging' state
-      sendCursorData(location, size);
-    }
-    if (!dragging &&
-        (gridX !== lastGridX || gridY !== lastGridY)) {
-      dragging = false; // Mouse is moving while pressed down, indicating a drag
-      lastGridX = gridX;
-      lastGridY = gridY;
-      let sizeX = (gridX - startLocX + 1);
-      let sizeY = (gridY - startLocY + 1);
-      let location = [startLocX, startLocY];
-      let size = [sizeX, sizeY];
-      // Send data to the server in the 'dragging' state
-      sendCursorData(location, size);
-    }
-  });
+//     if (dragging &&
+//         (gridX !== lastGridX || gridY !== lastGridY)) {
+//       lastGridX = gridX;
+//       lastGridY = gridY;
+//       let sizeX = (gridX - startLocX + 1);
+//       let sizeY = (gridY - startLocY + 1);
+//       let location = dragHandleActive ? [(gridX - startSizeX + 1), (gridY - startSizeY + 1)] : [startLocX, startLocY];
+//       let size = dragHandleActive ? [0, 0] : [sizeX, sizeY];
+//       // Send data to the server in the 'dragging' state
+//       sendCursorData(location, size);
+//     }
+//     if (!dragging &&
+//         (gridX !== lastGridX || gridY !== lastGridY)) {
+//       dragging = false; // Mouse is moving while pressed down, indicating a drag
+//       lastGridX = gridX;
+//       lastGridY = gridY;
+//       let sizeX = (gridX - startLocX + 1);
+//       let sizeY = (gridY - startLocY + 1);
+//       let location = [startLocX, startLocY];
+//       let size = [sizeX, sizeY];
+//       // Send data to the server in the 'dragging' state
+//       sendCursorData(location, size);
+//     }
+//   });
 
-  document.addEventListener('dblclick', (e) => {
-    // Ignore clicks on buttons and other specified elements
-    if (shouldPreventMove(e)) {
-      return;
-    }
+//   document.addEventListener('dblclick', (e) => {
+//     // Ignore clicks on buttons and other specified elements
+//     if (shouldPreventMove(e)) {
+//       return;
+//     }
 
-    let cameraLoc = getCameraLocation();
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const gridX = Math.floor(x / gridSize) + cameraLoc[0];
-    const gridY = Math.floor(y / gridSize) + cameraLoc[1];
+//     let cameraLoc = getCameraLocation();
+//     const rect = el.getBoundingClientRect();
+//     const x = e.clientX - rect.left;
+//     const y = e.clientY - rect.top;
+//     const gridX = Math.floor(x / gridSize) + cameraLoc[0];
+//     const gridY = Math.floor(y / gridSize) + cameraLoc[1];
 
-    // Reset size to 7x3 on double-click and send data to the server
-    sendCursorData([gridX, gridY], [7, 3]);
-  });
+//     // Reset size to 7x3 on double-click and send data to the server
+//     sendCursorData([gridX, gridY], [7, 3]);
+//   });
 
-  function sendCursorData(location, size) {
-    let dispatch = "mouse-event";
-    let dragging = dragHandleActive;
-    fetch(`/data`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ dispatch, location, size, dragging })
-    });
-  }
-}
+//   function sendCursorData(location, size) {
+//     let dispatch = "mouse-event";
+//     let dragging = dragHandleActive;
+//     fetch(`/data`, {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json'
+//       },
+//       body: JSON.stringify({ dispatch, location, size, dragging })
+//     });
+//   }
+// }
 
 
-function initKeyPressListener() {
-  let dispatch = "keypress";
-  let keys = [];
+// function initKeyPressListener() {
+//   let dispatch = "keypress";
+//   let keys = [];
 
-  document.addEventListener('keydown', (e) => {
-    keys = [];
-    if (e.key === 'Escape') { keys = ["escape"]; }
-    if (e.key === 'Enter') { keys = ["enter"]; }
-    if (e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["shift", "n"]; }
-    if (e.ctrlKey  && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "n"]; }
-    if (e.ctrlKey  && (e.key === 'd' || e.key === 'D')) { keys = ["ctrl", "d"]; }
-    if (e.ctrlKey  && (e.key === 's' || e.key === 'S')) { keys = ["ctrl", "s"]; }
-    if (e.ctrlKey  && (e.key === 'c' || e.key === 'C')) { keys = ["ctrl", "c"]; }
-    if (e.ctrlKey  && (e.key === 'v' || e.key === 'V')) { keys = ["ctrl", "v"]; }
-    if (e.ctrlKey  && (e.key === 'w' || e.key === 'W')) { keys = ["ctrl", "w"]; }
-    if (e.ctrlKey && e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "shift", "n"]; }
+//   document.addEventListener('keydown', (e) => {
+//     keys = [];
+//     if (e.key === 'Escape') { keys = ["escape"]; }
+//     if (e.key === 'Enter') { keys = ["enter"]; }
+//     if (e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["shift", "n"]; }
+//     if (e.ctrlKey  && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "n"]; }
+//     if (e.ctrlKey  && (e.key === 'd' || e.key === 'D')) { keys = ["ctrl", "d"]; }
+//     if (e.ctrlKey  && (e.key === 's' || e.key === 'S')) { keys = ["ctrl", "s"]; }
+//     if (e.ctrlKey  && (e.key === 'c' || e.key === 'C')) { keys = ["ctrl", "c"]; }
+//     if (e.ctrlKey  && (e.key === 'v' || e.key === 'V')) { keys = ["ctrl", "v"]; }
+//     if (e.ctrlKey  && (e.key === 'w' || e.key === 'W')) { keys = ["ctrl", "w"]; }
+//     if (e.ctrlKey && e.shiftKey && (e.key === 'n' || e.key === 'N')) { keys = ["ctrl", "shift", "n"]; }
 
-    if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) { keys = ["ctrl", "shift", "f"]; }
+//     if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) { keys = ["ctrl", "shift", "f"]; }
 
-    if (e.key === 'ArrowLeft')  { keys = ["left"]; }
-    if (e.key === 'ArrowRight') { keys = ["right"]; }
-    if (e.key === 'ArrowUp')    { keys = ["up"]; }
-    if (e.key === 'ArrowDown')  { keys = ["down"]; }
+//     if (e.key === 'ArrowLeft')  { keys = ["left"]; }
+//     if (e.key === 'ArrowRight') { keys = ["right"]; }
+//     if (e.key === 'ArrowUp')    { keys = ["up"]; }
+//     if (e.key === 'ArrowDown')  { keys = ["down"]; }
 
-    if (e.key === 'ArrowLeft' && e.key === 'ArrowRight')  { keys = ["left", "right"]; }
+//     if (e.key === 'ArrowLeft' && e.key === 'ArrowRight')  { keys = ["left", "right"]; }
 
-    if (e.shiftKey && e.key === 'ArrowLeft')  { keys = ["shift", "left"]; }
-    if (e.shiftKey && e.key === 'ArrowRight') { keys = ["shift", "right"]; }
-    if (e.shiftKey && e.key === 'ArrowUp')    { keys = ["shift", "up"]; }
-    if (e.shiftKey && e.key === 'ArrowDown')  { keys = ["shift", "down"]; }
+//     if (e.shiftKey && e.key === 'ArrowLeft')  { keys = ["shift", "left"]; }
+//     if (e.shiftKey && e.key === 'ArrowRight') { keys = ["shift", "right"]; }
+//     if (e.shiftKey && e.key === 'ArrowUp')    { keys = ["shift", "up"]; }
+//     if (e.shiftKey && e.key === 'ArrowDown')  { keys = ["shift", "down"]; }
 
-    if (e.ctrlKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "left"]; }
-    if (e.ctrlKey && e.key === 'ArrowRight') { keys = ["ctrl", "right"]; }
-    if (e.ctrlKey && e.key === 'ArrowUp')    { keys = ["ctrl", "up"]; }
-    if (e.ctrlKey && e.key === 'ArrowDown')  { keys = ["ctrl", "down"]; }
+//     if (e.ctrlKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "left"]; }
+//     if (e.ctrlKey && e.key === 'ArrowRight') { keys = ["ctrl", "right"]; }
+//     if (e.ctrlKey && e.key === 'ArrowUp')    { keys = ["ctrl", "up"]; }
+//     if (e.ctrlKey && e.key === 'ArrowDown')  { keys = ["ctrl", "down"]; }
 
-    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "shift", "left"]; }
-    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowRight') { keys = ["ctrl", "shift", "right"]; }
-    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowUp')    { keys = ["ctrl", "shift", "up"]; }
-    if (e.ctrlKey && e.shiftKey && e.key === 'ArrowDown')  { keys = ["ctrl", "shift", "down"]; }
+//     if (e.ctrlKey && e.shiftKey && e.key === 'ArrowLeft')  { keys = ["ctrl", "shift", "left"]; }
+//     if (e.ctrlKey && e.shiftKey && e.key === 'ArrowRight') { keys = ["ctrl", "shift", "right"]; }
+//     if (e.ctrlKey && e.shiftKey && e.key === 'ArrowUp')    { keys = ["ctrl", "shift", "up"]; }
+//     if (e.ctrlKey && e.shiftKey && e.key === 'ArrowDown')  { keys = ["ctrl", "shift", "down"]; }
 
-    if (keys.length > 0) {
-      fetch(`/data`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ dispatch, keys })
-      })
-    }
-    keys = [];
-  });
-}
+//     if (keys.length > 0) {
+//       fetch(`/data`, {
+//         method: 'POST',
+//         headers: {
+//           'Content-Type': 'application/json'
+//         },
+//         body: JSON.stringify({ dispatch, keys })
+//       })
+//     }
+//     keys = [];
+//   });
+// }
 
 function makeNumberInput(elementID) {
     // Get the element by ID
@@ -760,18 +708,46 @@ function initGamepadListener() {
   }
 }
 
-document.addEventListener('wheel', function(e) {
-  const threshold = 3; // Adjust threshold value as needed
-  const direction = {
-    horizontal: e.deltaX > threshold ? 'right' : e.deltaX < -threshold ? 'left' : null,
-    vertical: e.deltaY > threshold ? 'down' : e.deltaY < -threshold ? 'up' : null,
-  };
+// document.addEventListener('wheel', function(e) {
+//   const threshold = 3; // Adjust threshold value as needed
+//   const direction = {
+//     horizontal: e.deltaX > threshold ? 'right' : e.deltaX < -threshold ? 'left' : null,
+//     vertical: e.deltaY > threshold ? 'down' : e.deltaY < -threshold ? 'up' : null,
+//   };
 
-  if (direction.horizontal !== null || direction.vertical !== null) {
-    send({"dispatch": "scroll", "direction": direction});
+//   if (direction.horizontal !== null || direction.vertical !== null) {
+//     send({"dispatch": "scroll", "direction": direction});
+//   }
+// }, {passive: true}); // Use passive listener for better performance
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  let translateX = 0;
+  let translateY = 0;
+  let targetTranslateX = 0;
+  let targetTranslateY = 0;
+  const smoothness = 0.8; // Adjust this value to change the smoothness of the animation
+
+  function updateTranslation() {
+    translateX += (targetTranslateX - translateX) * smoothness;
+    translateY += (targetTranslateY - translateY) * smoothness;
+
+    document.getElementById('cell-container').style.transform = `translate(${translateX}px, ${translateY}px)`;
+
+    requestAnimationFrame(updateTranslation);
   }
-}, {passive: true}); // Use passive listener for better performance
 
+  function handleWheel(event) {
+    event.preventDefault();
+
+    targetTranslateX -= event.deltaX;
+    targetTranslateY -= event.deltaY;
+  }
+
+  window.addEventListener('wheel', handleWheel, { passive: true });
+
+  updateTranslation();
+});
 
 function sendPageExtents(gridSize) {
   const w = Math.floor(window.innerWidth / gridSize);
@@ -1355,17 +1331,17 @@ window.attachEntityListeners = (id) => {
   attachEntityListeners(id);
 }
 
-window.initKeyPressListener = () => {
-  initKeyPressListener();
-}
+// window.initKeyPressListener = () => {
+//   initKeyPressListener();
+// }
 
 window.initGamepadListener = () => {
   initGamepadListener();
 }
 
-window.initMouseEventsListener = (gridSize) => {
-  initMouseEventsListener(gridSize);
-}
+// window.initMouseEventsListener = (gridSize) => {
+//   initMouseEventsListener(gridSize);
+// }
 
 window.makeNumberInput = (id) => {
   makeNumberInput(id);

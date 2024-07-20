@@ -66,6 +66,6 @@ function makeMovable(parentElementId) {
   }
 }
 
-window.makeMovable = (id) => {
-  makeMovable(id);
-}
+// window.makeMovable = (id) => {
+//   makeMovable(id);
+// }

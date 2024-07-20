@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "squint-cljs": "http://localhost:8000/squint-cljs@0.3.36/index.js",
+    "squint-cljs/core.js": "http://localhost:8000/squint-cljs@0.3.36/core.js",
+    "squint-cljs/string.js": "http://localhost:8000/squint-cljs@0.3.36/string.js",
+    "@codemirror/language": "http://localhost:8000/codemirror/language@6.9.2/dist/index.js",
+    "@codemirror/state": "http://localhost:8000/codemirror/state@6.3.1/dist/index.js",
+    "@codemirror/view": "http://localhost:8000/codemirror/view@6.21.4/dist/index.js",
+    "@nextjournal/clojure-mode": "http://localhost:8000/nextjournal/clojure-mode@0.1.0-rc4/dist/nextjournal/clojure_mode.mjs"
+  }
+}
