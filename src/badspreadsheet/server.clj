@@ -20,7 +20,6 @@
    [:link {:rel  "stylesheet"
            :type "text/css"
            :href "resources/css/style.css"}]
-   [:script #_(slurp "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js") {:src "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"}]
    [:script {:src "resources/js/htmx.min.js"}]
    [:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
    [:script {:src "resources/js/ws.js"}]
@@ -30,7 +29,8 @@
    ;; codemirror script must load as a module due to import statements in the implementation
    [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/load-codemirror.js"))]]
    [:script {:src "resources/js/mouse.js" :defer true}]
-   [:script {:src "resources/js/keyboard.js" :defer true}]])
+   [:script {:src "resources/js/keyboard.js" :defer true}]
+   [:script {:src "resources/js/grid.js" :defer true}]])
 
 (defn page-body
   [content]

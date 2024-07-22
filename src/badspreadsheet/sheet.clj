@@ -1,15 +1,17 @@
 (ns badspreadsheet.sheet
   (:require
-   [badspreadsheet.server :as server]
+   [badspreadsheet.cell :as c]
    [badspreadsheet.components :as bc]
-   [badspreadsheet.cell :as c]))
+   [badspreadsheet.server :as server]
+   [badspreadsheet.util :as u]
+   [clojure.string :as str]))
 
-(def state (atom {:active    nil
-                  :size      20
-                  :camera    {:location [0 0]}
-                  :waypoints []
-                  :cursor    {:location [0 0]
-                              :size     [3 3]}}))
+(defonce state (atom {:active    nil
+                      :size      20
+                      :camera    {:location [0 0]}
+                      :waypoints []
+                      :cursor    {:location [0 0]
+                                  :size     [3 3]}}))
 
 (defonce port (server/get-port {:port (range 8000 9000)}))
 
@@ -24,6 +26,31 @@ body {
 }
 ")]])
 
+(def grid-square
+  [:svg#grid
+   {:width  "100%"
+    :height "100%"
+    :style  {:position "absolute"
+             :top      0
+             :left     0
+             :width    "100%"
+             :height   "100%"}}
+   [:defs
+    [:pattern#gridPattern
+     {:width        20
+      :height       20
+      :patternUnits "userSpaceOnUse"}
+     [:path {:d            "M 20 0 L 0 0 0 20"
+             :fill         "none"
+             :stroke       "#C0B6D0"
+             :stroke-width 1}]]]
+   [:rect {:width  "100%"
+           :height "100%"
+           :fill   "#E6E6FA"}]
+   [:rect {:width  "100%"
+           :height "100%"
+           :fill   "url(#gridPattern)"}]])
+
 (defn init!
   []
   (let [state @state]
@@ -31,7 +58,17 @@ body {
      [:script (bc/wrap-js-in-content-loaded "initKeyPressListener();")]
      [:script (bc/wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
      ;; initial cell render
+     [:div#grid-container
+      {:style {:display  "inline-block"
+               :width    "100vw"
+               :height   "100vh"
+               :overflow "hidden"
+               :position "relative"}}
+      grid-square]
      [:div#cell-container
+      {:style
+       {:transform (let [[x y] (get-in state [:store :container-coords] [0 0])]
+                     (format "translate(%spx, %spx);" x y))}}
       (into [:<>] (for [[_ cell] (:machines @c/cells)]
                     (bc/cell cell state {:init true})))
       (bc/cursor (:cursor state) state)]
@@ -47,25 +84,31 @@ body {
 
 (defn- render-cell
   [cell-id]
-  (println "CELL-ID IS: " cell-id)
   (try
     (server/broadcast!
      server-map
      (let [cell (c/get-cell cell-id)]
-       [:div#insert-target
-        [:<>
-         (bc/cell cell @state)
-         [:div#insert-target]]]))
+       [:div#insert-target {:hx-swap-oob "afterend"}
+        (bc/cell cell @state)]))
+    (catch Exception _e nil)))
+
+(defn- render-cursor
+  []
+  (try
+    (server/broadcast!
+     server-map
+     (let [state @state]
+       (bc/cursor (:cursor state) state)))
     (catch Exception _e nil)))
 
 ;; make this more efficient by only sending changes
 (defn- render
-  [_ _ _ cells-state]
-  (println "RENDER RUNS")
+  [_k _atom _old cells-state]
   (try
     (server/broadcast!
      server-map
-     (into [:<>] (mapv #(bc/cell % @state) (vals (:machines cells-state)))))
+     ;; note that state here is NOT the cell state, but the sheet state
+     (mapv #(bc/cell % @state) (vals (:machines cells-state))))
     (catch Exception _e nil)))
 
 (add-watch c/cells :render #'render)
@@ -146,7 +189,7 @@ body {
   [_]
   (let [position (vec (get-in @state [:cursor :location]))
         [w h]    (vec (get-in @state [:cursor :size]))
-        cells     (mapv c/get-cell (badspreadsheet.machines/window position w h))]
+        cells     (mapv c/get-cell (u/window position w h))]
     (c/remove! (mapv :id cells))
     (server/broadcast!
      server-map
@@ -166,9 +209,25 @@ body {
   (c/formula (c/c-get id :position) code))
 
 (defmethod server/data-handler :mouse-event
-  [{:keys [location] :as mouse-event}]
-  (move-cursor! (rest location))
-  )
+  [{:keys [location]}]
+  (move-cursor! (rest location)))
+
+#_
+(defmethod server/data-handler :make-active
+  [{:keys [id]}]
+  (let [id (parse-long (str/replace id "movable" ""))]
+    (swap! state assoc :active id)))
+
+(defmethod server/data-handler :store
+  [data]
+  (let [data (->> (dissoc data :dispatch)
+                  (mapv (fn [[k v]]
+                          (if (vector? v)
+                            [k (vec (remove #(= (name k) %) v))]
+                            [k v])))
+                  (into {}))]
+    (swap! state update :store merge data)
+    (render-cursor)))
 
 (defn start!
   []

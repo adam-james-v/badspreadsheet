@@ -590,7 +590,7 @@
                editor-style
                (when enable-editor?
                  {:overflow "visible"
-                  :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
+                  #_#_:filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
       ;; value render container
       #_[:div {:style {:height  (* ny global-size)
                        :display (if (#{:none :content :control} display) "none" "block")}}
@@ -615,33 +615,32 @@
        "ID:" id]
       ;; scripts
       [:<>
-          #_(when true #_(= display :control)
-            (cond
-              (number-content? content)
-              [:script (wrap-fn (clj->js `(makeNumberInput ~id)))]
+       #_(when true #_(= display :control)
+               (cond
+                 (number-content? content)
+                 [:script (wrap-fn (clj->js `(makeNumberInput ~id)))]
 
-              (points-content? content)
-              [:points-editor
-               {:id          id
-                :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
+                 (points-content? content)
+                 [:points-editor
+                  {:id          id
+                   :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
 
-              (touch-tilt-control? content)
-              [:touch-tilt-control
-               {:style {:display "block"
-                        :width   "100%"
-                        :height  "100%"}
-                :id    id}]
+                 (touch-tilt-control? content)
+                 [:touch-tilt-control
+                  {:style {:display "block"
+                           :width   "100%"
+                           :height  "100%"}
+                   :id    id}]
 
-              (drawing-canvas? content)
-              [:drawing-canvas
-               {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
-                :style       {:display "block"
-                              :width   "100%"
-                              :height  "100%"}
-                :id          id}]
+                 (drawing-canvas? content)
+                 [:drawing-canvas
+                  {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
+                   :style       {:display "block"
+                                 :width   "100%"
+                                 :height  "100%"}
+                   :id          id}]
 
-              :else nil))]
-      [:<>
+                 :else nil))
        (when enable-editor?
          [:script (wrap-fn (clj->js `(createEditorInstance ~id)))])
        [:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
@@ -708,6 +707,7 @@
        :camera-location   (str/join "," (get-in state [:camera :location]))
        :cursor-location   (str/join "," location)
        :cursor-size       (str/join "," size)
+       :data-store        (json/encode (:store state))
        :active-element-id active
        :style             {:z-index  "2000"
                            :position "relative"}}

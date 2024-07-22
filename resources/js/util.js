@@ -13,6 +13,12 @@ function getGridSize() {
   return Number(cursorElement.getAttribute("grid-size"));
 }
 
+function getFromStore(k) {
+  const cursorElement = document.getElementById('cursor');
+  let data = JSON.parse(cursorElement.getAttribute("data-store"));
+  return data[k];
+}
+
 function getCameraLocation() {
   const cursorElement = document.getElementById('cursor');
   const cameraLocation = cursorElement.getAttribute('camera-location');
@@ -48,4 +54,18 @@ function subtractVectors(v1, v2) {
     throw new Error('Vectors must be of the same length');
   }
   return v1.map((val, index) => val - v2[index]);
+}
+
+function debounce(func, wait) {
+  let timeout;
+
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
 }

@@ -38,7 +38,8 @@ function isDragHandle(el) {
 }
 
 function shouldPreventMove(e) {
-  return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
+  return ( e.target.classList.contains("cm-content") );
+  //return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
 }
 
 let dragHandleActive = false;

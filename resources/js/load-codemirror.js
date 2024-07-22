@@ -5,7 +5,8 @@ import { syntaxHighlighting, defaultHighlightStyle, foldGutter } from '@codemirr
 
 let theme = EditorView.theme({
   "&.cm-editor" : {"background": "lavender",
-                   "border-radius": "1px"},
+                   "border-radius": "2px",
+                   "border": "1px solid #8366a0"},
   ".cm-content": {whitespace: "pre-wrap",
                   passing: "10px 0",
                   flex: "1 1 0"},
@@ -26,20 +27,6 @@ let theme = EditorView.theme({
   ".cm-cursor": {visibility: "hidden"},
   "&.cm-focused .cm-cursor": {visibility: "visible"}
 });
-
-function debounce(func, wait) {
-  let timeout;
-
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
 
 function handleEditorUpdate(update) {
   if (update.docChanged) {
@@ -221,12 +208,8 @@ function toggleDragHandle() {
   dragHandleActive = !dragHandleActive;
 }
 
-let bg = document.getElementById('cell-container');
-
-let globalGridSize = 20;
-
 function makeNumberInput(elementID) {
-    // Get the element by ID
+  // Get the element by ID
   const element = document.getElementById(elementID);
   if (!element) {
     console.error('Element not found:', elementID);
@@ -449,41 +432,6 @@ function initGamepadListener() {
     requestAnimationFrame(update);
   }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  let translateX = 0;
-  let translateY = 0;
-  let targetTranslateX = 0;
-  let targetTranslateY = 0;
-  const smoothness = 0.8; // Adjust this value to change the smoothness of the animation
-
-  function updateTranslation() {
-    translateX += (targetTranslateX - translateX) * smoothness;
-    translateY += (targetTranslateY - translateY) * smoothness;
-
-    document.getElementById('cell-container').style.transform = `translate(${translateX}px, ${translateY}px)`;
-
-    requestAnimationFrame(updateTranslation);
-  }
-
-  function handleWheel(event) {
-    event.preventDefault();
-
-    targetTranslateX -= event.deltaX;
-    targetTranslateY -= event.deltaY;
-  }
-
-  window.addEventListener('wheel', handleWheel, { passive: true });
-
-  updateTranslation();
-});
-
-function sendPageExtents(gridSize) {
-  const w = Math.floor(window.innerWidth / gridSize);
-  const h = Math.floor(window.innerHeight / gridSize);
-  send({"dispatch": "store-extents", "extents": [w, h]});
-}
-
 
 // experiment with a webcomponent
 class PointsEditor extends HTMLElement {
@@ -1031,12 +979,6 @@ class DrawingCanvas extends HTMLElement {
 }
 
 window.customElements.define('drawing-canvas', DrawingCanvas);
-
-// Run the function on page load.
-window.addEventListener('load', () => sendPageExtents(globalGridSize));
-
-// Run the function on window resize.
-window.addEventListener('resize', () => sendPageExtents(globalGridSize));
 
 // attach functions to the window so they can be used globally
 window.createEditorInstance = (id) => {

@@ -92,20 +92,22 @@
 (defmethod c# :row
   [_ y]
   (let [[xmin xmax] (:x (machines/grid-extents))
-        refs (map (fn [x] [x y]) (range xmin (inc xmax)))]
-    refs))
+        positions   (map (fn [x] [x y]) (range xmin (inc xmax)))]
+    positions))
 
 (defmethod c# :col
   [_ x]
   (let [[ymin ymax] (:y (machines/grid-extents))
-        refs (map (fn [y] [x y]) (range ymin (inc ymax)))]
-    refs))
+        positions   (map (fn [y] [x y]) (range ymin (inc ymax)))]
+    positions))
 
 (defmethod c# :region
   ([_ [x1 y1] w h]
-   (machines/window [x1 y1] w h))
+   (let [positions (machines/window [x1 y1] w h)]
+     positions))
   ([_ [x1 y1] [x2 y2]]
-   (machines/window [x1 y1] [x2 y2])))
+   (let [positions (machines/window [x1 y1] [x2 y2])]
+     positions)))
 
 (defmethod c# :neighbours
   ([_ pos] (c# :neighbours [:n :ne :e :se :s :sw :w :nw] pos))
@@ -164,59 +166,57 @@
   [pos form]
   (let [c#s (get-c#s form)]
     (if (seq c#s)
-      (let [let-syms    (vec (repeatedly (count c#s) #(gensym "c#")))
-            let-smap    (zipmap c#s let-syms)
-            refs        (map
-                         (fn get-refs
-                           [let-sym [_ & args]]
-                           (if (relative-ref (first args))
-                             [let-sym (apply c# (concat args [pos]))]
-                             [let-sym (apply c# args)]))
-                         let-syms c#s)
-            bindings    (mapv
-                         (fn make-let
-                           [[sym ref]]
-                           (let [refsym (repeatedly (count ref) #(gensym "ref-"))]
-                             [sym (if (= 1 (count ref))
-                                    (first refsym)
-                                    (vec refsym))]))
-                         refs)
-            fn-syms     (vec (apply concat (map (fn [[_ syms]] (if (symbol? syms) [syms] syms)) bindings)))
-            let-binding (vec (apply concat bindings))
-            [do? & wrapped-inner
-             :as inner] (walk/postwalk-replace  let-smap form)
-            inner-form  (if (= do? 'do)
-                          wrapped-inner
-                          [inner])
-            _           (println inner-form)]
+      (let [let-syms            (vec (repeatedly (count c#s) #(gensym "c#")))
+            let-smap            (zipmap c#s let-syms)
+            refs                (map
+                                 (fn get-refs
+                                   [let-sym [_ & args]]
+                                   (if (relative-ref (first args))
+                                     [let-sym (apply c# (concat args [pos]))]
+                                     [let-sym (apply c# args)]))
+                                 let-syms c#s)
+            bindings            (mapv
+                                 (fn make-let
+                                   [[sym ref]]
+                                   (let [refsym (repeatedly (count ref) #(gensym "ref-"))]
+                                     [sym (if (= 1 (count ref))
+                                            (first refsym)
+                                            (vec refsym))]))
+                                 refs)
+            fn-syms             (vec (apply concat (map (fn [[_ syms]] (if (symbol? syms) [syms] syms)) bindings)))
+            let-binding         (vec (apply concat
+                                            (mapv (fn make-let-with-remove-nil
+                                                    [[c#sym sym-or-vec :as binding]]
+                                                    (if (symbol? sym-or-vec)
+                                                      binding
+                                                      ;; if we are binding a vector, it means
+                                                      ;; we've got a c# form that results in some list of positions,
+                                                      ;; many of which could be nil, so we filter them out
+                                                      [c#sym `(vec (remove nil? ~sym-or-vec))]))
+                                                  bindings)))
+            [do? & _ :as inner] (walk/postwalk-replace  let-smap form)
+            inner-form          (if (= do? 'do)
+                                  (rest inner)
+                                  inner)]
         {:form           form
-         :processed-form `(fn ~fn-syms
+         :processed-form `(fn [~fn-syms]
                             (let ~let-binding
                               ~@inner-form))
          :refs           (vec (mapcat second refs))})
-      #_(let [[do? & wrapped-inner
-             :as inner] form
-            inner-form  (if (= do? 'do)
-                          wrapped-inner
-                          inner)]
-        (println "INNER: " inner-form wrapped-inner do?))
-      {:form           form
-       :processed-form (if false #_(contains-symbol? form)
-                         form
-                         `(fn [] ~@form))})))
+      (let [body (rest form)]
+        {:form           form
+         :processed-form `(fn [] ~@body)}))))
 
 (defn formula
   "Given a form string, produce a working cell. Returns the newly created cell's ID."
   ([position form-or-str] (formula position [2 4] form-or-str))
   ([position size form-or-str]
-   (println "FORMULA: " position size form-or-str)
    (let [form                          (if (string? form-or-str)
                                          (edn/read-string (format "(do %s)" form-or-str))
                                          form-or-str)
          {:keys [processed-form refs]} (process-form position form)
-         _ (println "PROCESSED: " processed-form)
          f                             (eval processed-form)
-         id                            (get-in @cells [:grid position] (new-cell-id))
+         id                            (or (machines/get-pos @cells position) (new-cell-id))
          size                          (get-in @cells [:machines id :size] size)]
      (machines/add-machine! id position size refs f)
      (c-assoc id :content (if (string? form-or-str)

@@ -1,13 +1,14 @@
 (ns badspreadsheet.machines
   (:require
-   [clojure.core.async :as async]
+   [badspreadsheet.util :as u]
    [clojure.set :as set])
   (:import
    (java.util.concurrent Executors Future)))
 
 ;; an experiment where 'cells' are treated more like machines in a factory game.
 
-(defrecord Machine [id position size sources inputs output latest-output operation memoized-operation])
+(defrecord Machine [id position size
+                    sources inputs output latest-output operation memoized-operation])
 
 (defonce state (atom {:machines {}
                       :grid {}}))
@@ -17,6 +18,14 @@
 ;; ID: int ID perhaps also key ID, for user-generated machines (eg via repl)
 ;; more complex ref methods should be handled with additional functions
 ;; that call get-machine with locations or IDs. eg. get-machines with a window function
+(defn get-pos
+  [{:keys [grid]} pos]
+  (let [unpacked-grid (into {} (mapcat
+                                (fn [[positions id]]
+                                  (map #(vector % id) positions))
+                                grid))]
+    (get unpacked-grid pos)))
+
 (defn get-machine
   ([ref] (get-machine @state ref))
   ([state ref]
@@ -24,18 +33,9 @@
     ;; ref is a machine ID
     (get-in state [:machines ref])
     ;; ref is a position
-    (get-in state [:machines (get-in state [:grid ref])])
+    (get-in state [:machines (get-pos state ref)])
     ;; ref is a machine already, still want to get the machine from state by same ID
     (get-in state [:machines (:id ref)]))))
-
-(defn window
-  ([[x y] w h] (window [x y] [(+ x w) (+ y h)]))
-  ([[x1 y1] [x2 y2]]
-   (let [[x1 x2] (sort [x1 x2])
-         [y1 y2] (sort [y1 y2])]
-     (for [x (range x1 (inc x2))
-           y (range y1 (inc y2))]
-       [x y]))))
 
 (defn- machine-id->positions
   [{:keys [grid]} machine-id]
@@ -45,33 +45,59 @@
        pos))
    grid))
 
+#_
 (defn- update-grid
-  [state]
-  (reduce
-   (fn a [acc-state {:keys [id position size] :as _machine}]
-     (let [[w h] size
-           new-positions (set (window position w h))
-           old-positions (set (machine-id->positions acc-state id))]
-       (if (not= new-positions old-positions)
-         (-> acc-state
-             (update :grid (fn [grid] (apply dissoc grid old-positions)))
-             (update :grid (fn [grid] (merge grid (zipmap new-positions (repeat id))))))
-         acc-state)))
-   state
-   (vals (:machines state))))
+  [{:keys [machines] :as state}]
+  (let [state (update state :grid
+                      (fn [grid]
+                        (into {} (filter (fn [[_k v]]
+                                           ((set (map :id machines)) v))
+                                         grid))))]
+    (reduce
+     (fn a [acc-state {:keys [id position size] :as _machine}]
+       (let [[w h] size
+             new-positions (set (u/window position w h))
+             old-positions (set (machine-id->positions acc-state id))]
+         (if (not= new-positions old-positions)
+           (-> acc-state
+               (update :grid (fn [grid] (apply dissoc grid old-positions)))
+               (update :grid (fn [grid] (merge grid (zipmap new-positions (repeat id))))))
+           acc-state)))
+     state
+     (vals (:machines state)))))
+
+(defn- canonical-position
+  [{:keys [machines] :as state} pos]
+  (let [machine-id (get-pos state pos)]
+    (get-in machines [machine-id :position])))
+
+(defn- distinct-sources
+  [state sources]
+  (->> sources
+       (map (fn [source]
+              (if (vector? source)
+                (canonical-position state source)
+                source)))
+       (partition-by vector?)
+       (mapcat (fn [[f & r :as l]]
+                 (if (vector? f)
+                   (distinct l)
+                   l)))
+       (remove nil?)))
 
 (defn- copy-outputs-to-inputs
   [state]
   (reduce
    (fn [acc-state machine]
      (if-let [sources (:sources machine)]
-       (let [new-inputs (reduce
-                         (fn [inputs source-ref]
-                           (if-let [source (get-machine acc-state source-ref)]
-                             (assoc inputs source-ref (:output source))
-                             inputs))
-                         (:inputs machine)
-                         sources)]
+       (let [distinct-sources (distinct-sources acc-state sources)
+             new-inputs       (reduce
+                               (fn [inputs source-ref]
+                                 (if-let [source (get-machine acc-state source-ref)]
+                                   (assoc inputs source-ref (:output source))
+                                   inputs))
+                               (:inputs machine)
+                               distinct-sources)]
          (assoc-in acc-state [:machines (:id machine) :inputs] new-inputs))
        acc-state))
    state
@@ -96,20 +122,21 @@
    (:machines state)))
 
 (defn run-machine
-  ([machine] (run-machine machine false))
-  ([{:keys [id inputs sources operation memoized-operation] :as machine} force?]
+  ([state machine] (run-machine state machine false))
+  ([state {:keys [id inputs sources operation memoized-operation] :as machine} force?]
    (if sources
      ;; regular machine that requires some inputs
-     (when (every? some? (map #(get inputs %) sources))
-       (try
-         (let [op     (if force? operation memoized-operation)
-               result (apply op (vals inputs))]
-           (-> machine
-               (assoc :output result)
-               (assoc :latest-output result)))
-         (catch Exception e
-           (println "Error in machine:" id ":" (.getMessage e))
-           machine)))
+     (let [distinct-sources (distinct-sources state sources)]
+       (when true (every? some? (map #(get inputs %) distinct-sources))
+             (try
+               (let [op     (if force? operation memoized-operation)
+                     result (op (map inputs distinct-sources))]
+                 (-> machine
+                     (assoc :output result)
+                     (assoc :latest-output result)))
+               (catch Exception e
+                 (println "Error in machine:" id ":" (.getMessage e))
+                 machine))))
      ;; generator that always runs without inputs
      (try
        (let [op     (if force? operation memoized-operation)
@@ -126,7 +153,7 @@
   ([state force?]
    (reduce
     (fn [acc-state [id machine]]
-      (if-let [updated-machine (run-machine machine force?)]
+      (if-let [updated-machine (run-machine state machine force?)]
         (assoc-in acc-state [:machines id] updated-machine)
         acc-state))
     state
@@ -139,7 +166,7 @@
       clear-all-outputs
       run-all-machines
       clear-all-inputs
-      update-grid))
+      #_update-grid))
 
 (defn- process
   [state]
@@ -163,12 +190,13 @@
                clear-all-outputs
                (run-all-machines :force)
                clear-all-inputs
-               update-grid))))
+               #_update-grid))))
 
 (defn- placement-allowed?
-  [{:keys [grid] :as _state} id position]
-  (or (not (contains? grid position))
-      (= (get grid position) id)))
+  [state id position]
+  (let [machine-id (get-pos state position)]
+    (or (nil? machine-id)
+        (= machine-id id))))
 
 (defn add-machine
   ([state {:keys [id position size sources operation initial-output] :as _machine-def}]
@@ -177,15 +205,18 @@
    (add-machine state id position size sources operation nil))
   ([state id position size sources operation initial-output]
    (when (placement-allowed? state id position)
-     (let [machine   (->Machine id position size sources {} initial-output nil operation (memoize operation))
-           old-pos   (get-in state [:machines id :position])
-           new-state (cond->
-                         (merge-with merge
-                                     state
-                                     {:machines {id machine}
-                                      :grid     {position id}})
-                         (not= old-pos position)
-                         (update :grid dissoc old-pos))]
+     (let [machine          (->Machine id position size sources {} initial-output nil operation (memoize operation))
+           [w h]            size
+           new-pos-set      (set (u/window position w h))
+           {old-pos  :position
+            old-size :size} (get-in state [:machines id])
+           old-pos-set      (when old-pos (set (u/window old-pos (first old-size) (second old-size))))
+           new-state        (cond-> (merge-with merge
+                                                state
+                                                {:machines {id machine}
+                                                 :grid     {new-pos-set id}})
+                              (not= old-pos-set new-pos-set)
+                              (update :grid dissoc old-pos-set))]
        new-state))))
 
 (defn add-machines
@@ -213,7 +244,7 @@
   [machine-ref]
   (let [id                 (or (:id machine-ref)
                                (if (vector? machine-ref)
-                                 (get-in @state [:grid machine-ref])
+                                 (get-pos @state machine-ref)
                                  machine-ref))
         {:keys [position size]} (get-in @state [:machines id])
         [w h] size]
@@ -221,27 +252,28 @@
       (swap! state (fn [s]
                      (-> s
                          (update :machines dissoc id)
-                         (update :grid (fn [grid] (apply dissoc grid (window position w h))))))))))
+                         (update :grid (fn [grid] (dissoc grid (set (u/window position w h)))))))))))
 
 (defn remove-machines!
   [machine-refs]
-  (let [ids       (->> machine-refs
-                       (map (fn [machine-ref]
+  (let [ids      (->> machine-refs
+                      (keep (fn [machine-ref]
                               (if (vector? machine-ref)
-                                (get-in @state [:grid machine-ref])
+                                (get-pos @state machine-ref)
                                 machine-ref)))
-                       distinct)
-        positions (map
-                   (fn [id]
-                     (:position (get-in @state [:machines id])))
-                   ids)]
-    (println "IDS" ids "Positions" positions)
-    (when (seq positions)
+                      distinct)
+        pos-sets (map
+                  (fn [id]
+                    (let [{:keys [position size]} (get-in @state [:machines id])
+                          [w h]                   size]
+                      (set (u/window position w h))))
+                  ids)]
+    (when (seq pos-sets)
       (swap! state
              (fn [s]
                (-> s
                    (update :machines (fn [machines] (apply dissoc machines ids)))
-                   (update :grid (fn [grid] (apply dissoc grid positions)))))))))
+                   (update :grid (fn [grid] (apply dissoc grid pos-sets)))))))))
 
 (defn move-machine!
   [machine-ref new-pos]
@@ -321,8 +353,7 @@
 ;; by region  -> [:region [x1 y1] [x2 y2]]
 
 (defn grid-extents
-  []
-  (let [positions (keys (:grid @state))
+  []  (let [positions (apply set/union (keys (:grid @state)))
         xs (apply (juxt min max) (mapv first positions))
         ys (apply (juxt min max) (mapv second positions))]
     {:x xs
@@ -345,9 +376,9 @@
 
 (defmethod get-machines :region
   ([_ [x1 y1] w h]
-   (keep get-machine (window [x1 y1] w h)))
+   (keep get-machine (u/window [x1 y1] w h)))
   ([_ [x1 y1] [x2 y2]]
-   (keep get-machine (window [x1 y1] [x2 y2]))))
+   (keep get-machine (u/window [x1 y1] [x2 y2]))))
 
 (def cardinal-dirs->rel-coords
   {:n  [ 0 -1]
@@ -373,10 +404,10 @@
 
 (defmethod get-machines :relative-region
   ([_ [x1 y1] w h machine]
-   (let [refs (map (fn [v] (mapv + v (:position machine))) (window [x1 y1] w h))]
+   (let [refs (map (fn [v] (mapv + v (:position machine))) (u/window [x1 y1] w h))]
      (keep get-machine refs)))
   ([_ [x1 y1] [x2 y2] machine]
-   (let [refs (map (fn [v] (mapv + v (:position machine))) (window [x1 y1] [x2 y2]))]
+   (let [refs (map (fn [v] (mapv + v (:position machine))) (u/window [x1 y1] [x2 y2]))]
      (keep get-machine refs))))
 
 (comment
