@@ -288,61 +288,60 @@
            (concat cell-locs loc-refs)))))
 
 (defn information-overlay
-  [{:keys [entities overlay-on waypoints extents size camera] :as state}]
+  [{:keys [entities overlay-on waypoints] :as state}]
   (when overlay-on
-    (let [[cx cy] (:location camera)]
-      (into
-       [:svg#information-overlay
-        {:style {:pointer-events "none"
-                 :width          "100vw"
-                 :height         "100vh"
-                 :position       "absolute"}}
-        [:g#overlay-controls
-         (-> (el/rect 30 30)
-             (tf/translate [20 20])
-             (tf/style {:style        {:pointer-events "auto"}
-                        :label        "Toggle Information Overlay."
-                        :onclick      (fe-send {:dispatch :toggle-overlay})
-                        :position     "absolute"
-                        :bottom       "-10px"
-                        :stroke-width 1
-                        :stroke       "black"
-                        :fill         "#abcabc"}))]
-        (-> (into
-             [:g {:id "waypoint-collection"}]
-             (map-indexed
-              (fn [idx {:keys [colour position label]}]
-                (let [[wx wy] position
-                      [ex ey] extents]
-                  (-> (el/g
-                       (-> (el/circle 10)
-                           (tf/style {:style        {:pointer-events "auto"}
-                                      :fill         colour
-                                      :stroke       "black"
-                                      :stroke-width 2
-                                      :onclick      (fe-send {:dispatch :set-camera
-                                                              :position [(- wx (int (/ ex 2)))
-                                                                         (- wy (int (/ ey 2)))]})}))
-                       (-> (el/text label) (tf/translate [40 1])))
-                      (tf/translate [0 (* 30 idx)]))))
-              (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
-            (tf/translate [20 60]))
-        ;;
-        #_(into [:g]
-                (map (fn [[x y]]
-                       (let [left (* (- x cx) size)
-                             top  (* (- y cy) size)]
-                         [:rect {:id      (format "location_ref_%s_%s" x y)
-                                 :width   size
-                                 :height  size
-                                 :x       left
-                                 :y       top
-                                 :stroke  "purple"
-                                 :fill    "lavender"
-                                 :opacity 0.2}])))
-                (filter identity #_c/loc? (keys @c/cells)))]
-       (when overlay-on
-         (map #(render-refs % state) (vals entities)))))))
+    (into
+     [:svg#information-overlay
+      {:style {:pointer-events "none"
+               :width          "100vw"
+               :height         "100vh"
+               :position       "absolute"}}
+      [:g#overlay-controls
+       (-> (el/rect 30 30)
+           (tf/translate [20 20])
+           (tf/style {:style        {:pointer-events "auto"}
+                      :label        "Toggle Information Overlay."
+                      :onclick      (fe-send {:dispatch :toggle-overlay})
+                      :position     "absolute"
+                      :bottom       "-10px"
+                      :stroke-width 1
+                      :stroke       "black"
+                      :fill         "#abcabc"}))]
+      (-> (into
+           [:g {:id "waypoint-collection"}]
+           (map-indexed
+            (fn [idx {:keys [colour position label]}]
+              (let [[wx wy] position
+                    [ex ey] [100 100]]
+                (-> (el/g
+                     (-> (el/circle 10)
+                         (tf/style {:style        {:pointer-events "auto"}
+                                    :fill         colour
+                                    :stroke       "black"
+                                    :stroke-width 2
+                                    :onclick      (fe-send {:dispatch :set-camera
+                                                            :position [(- wx (int (/ ex 2)))
+                                                                       (- wy (int (/ ey 2)))]})}))
+                     (-> (el/text label) (tf/translate [40 1])))
+                    (tf/translate [0 (* 30 idx)]))))
+            (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
+          (tf/translate [20 60]))
+      ;;
+      #_(into [:g]
+              (map (fn [[x y]]
+                     (let [left (* (- x cx) size)
+                           top  (* (- y cy) size)]
+                       [:rect {:id      (format "location_ref_%s_%s" x y)
+                               :width   size
+                               :height  size
+                               :x       left
+                               :y       top
+                               :stroke  "purple"
+                               :fill    "lavender"
+                               :opacity 0.2}])))
+              (filter identity #_c/loc? (keys @c/cells)))]
+     (when overlay-on
+       (map #(render-refs % state) (vals entities))))))
 
 (defn image
   [file-path]
@@ -678,11 +677,12 @@
                           :margin          "0 auto"
                           :box-sizing      "border-box"}]
     [:div.prevent-cursor-move {:style button-bar-style}
+     (button "🏠" "Return To Home Position." (format "setContainerPosition(%s, %s);" 50 50))
      (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
      #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
      #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
      (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
-              (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
+             (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
      (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
      [:div {:style {:font-size   "8pt"
                     :width       0

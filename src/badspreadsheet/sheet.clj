@@ -3,10 +3,10 @@
    [badspreadsheet.cell :as c]
    [badspreadsheet.components :as bc]
    [badspreadsheet.server :as server]
-   [badspreadsheet.util :as u]
-   [clojure.string :as str]))
+   [badspreadsheet.util :as u]))
 
 (defonce state (atom {:active    nil
+                      :store     {:container-coords [0 0]}
                       :size      20
                       :camera    {:location [0 0]}
                       :waypoints []
@@ -51,6 +51,17 @@ body {
            :height "100%"
            :fill   "url(#gridPattern)"}]])
 
+(defn cell-container
+  [state]
+  [:div#cell-container
+   {:style
+    {:margin-top "-100vh"
+     :transform  (let [[x y] (get-in state [:store :container-coords] [0 0])]
+                   (format "translate(%spx, %spx);" x y))}}
+   (into [:<>] (for [[_ cell] (:machines @c/cells)]
+                 (bc/cell cell state {:init true})))
+      (bc/cursor (:cursor state) state)])
+
 (defn init!
   []
   (let [state @state]
@@ -65,13 +76,7 @@ body {
                :overflow "hidden"
                :position "relative"}}
       grid-square]
-     [:div#cell-container
-      {:style
-       {:transform (let [[x y] (get-in state [:store :container-coords] [0 0])]
-                     (format "translate(%spx, %spx);" x y))}}
-      (into [:<>] (for [[_ cell] (:machines @c/cells)]
-                    (bc/cell cell state {:init true})))
-      (bc/cursor (:cursor state) state)]
+     (cell-container state)
      [:div#overlays
       (bc/information-overlay state)
       (bc/button-bar state)]]))

@@ -1,17 +1,18 @@
+let storedCoords = getFromStore("container-coords");
+let translateX = storedCoords[0];
+let translateY = storedCoords[1];
+console.log(storedCoords, translateX, translateY);
+let targetTranslateX = storedCoords[0];
+let targetTranslateY = storedCoords[1];
+const smoothness = 0.9;
+let isMoving = false;
+let movementTimer;
+const grid = document.getElementById('grid');
+const gridPattern = document.getElementById('gridPattern');
+const cellSize = 20;
+const movementTimeout = 150; // Adjust this value to set how long to wait before considering movement stopped
+
 document.addEventListener('DOMContentLoaded', () => {
-  let storedCoords = getFromStore("container-coords");
-  let translateX = storedCoords[0];
-  let translateY = storedCoords[1];
-  console.log(storedCoords, translateX, translateY);
-  let targetTranslateX = storedCoords[0];
-  let targetTranslateY = storedCoords[1];
-  const smoothness = 0.9;
-  let isMoving = false;
-  let movementTimer;
-  const grid = document.getElementById('grid');
-  const gridPattern = document.getElementById('gridPattern');
-  const cellSize = 20;
-  const movementTimeout = 150; // Adjust this value to set how long to wait before considering movement stopped
 
   function updateTranslation() {
     const dx = targetTranslateX - translateX;
@@ -49,21 +50,27 @@ document.addEventListener('DOMContentLoaded', () => {
   function checkMovementStopped() {
     if (isMoving) {
       isMoving = false;
-      sendCoordinatesToServer();
+      sendCoordinatesToServer(translateX, translateY);
     }
-  }
-
-  function sendCoordinatesToServer() {
-    const roundedX = Math.round(translateX);
-    const roundedY = Math.round(translateY);
-    send({"dispatch": "store",
-          //"from-url": window.location.toString(),
-          "container-coords": [roundedX, roundedY]});
   }
 
   window.addEventListener('wheel', handleWheel, { passive: true });
   updateTranslation();
 });
+
+function sendCoordinatesToServer(x, y) {
+  let roundedX = Math.round(x);
+  let roundedY = Math.round(y);
+  send({"dispatch": "store",
+        //"from-url": window.location.toString(),
+        "container-coords": [roundedX, roundedY]});
+}
+
+function setContainerPosition(x, y) {
+  sendCoordinatesToServer(x, y);
+  targetTranslateX = x;
+  targetTranslateY = y;
+}
 
 function sendPageExtents(gridSize) {
   const w = Math.floor(window.innerWidth / gridSize);
