@@ -170,7 +170,7 @@
 
 (defn- process
   [state]
-  (let [max-iters (* 2 (count (:machines state)))
+  (let [max-iters (+ 2 (count (:machines state)))
         iters (iterate process-cycle state)]
     (or
      (->> iters
@@ -252,7 +252,8 @@
       (swap! state (fn [s]
                      (-> s
                          (update :machines dissoc id)
-                         (update :grid (fn [grid] (dissoc grid (set (u/window position w h)))))))))))
+                         (update :grid (fn [grid] (dissoc grid (set (u/window position w h))))))))
+      (process-one!))))
 
 (defn remove-machines!
   [machine-refs]
@@ -273,7 +274,8 @@
              (fn [s]
                (-> s
                    (update :machines (fn [machines] (apply dissoc machines ids)))
-                   (update :grid (fn [grid] (apply dissoc grid pos-sets)))))))))
+                   (update :grid (fn [grid] (apply dissoc grid pos-sets))))))
+      (process-one!))))
 
 (defn move-machine!
   [machine-ref new-pos]

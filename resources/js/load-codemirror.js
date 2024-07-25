@@ -6,7 +6,7 @@ import { syntaxHighlighting, defaultHighlightStyle, foldGutter } from '@codemirr
 let theme = EditorView.theme({
   "&.cm-editor" : {"background": "lavender",
                    "border-radius": "2px",
-                   "border": "1px solid #8366a0"},
+                   "border": "1px solid #C0B6D0"},
   ".cm-content": {whitespace: "pre-wrap",
                   passing: "10px 0",
                   flex: "1 1 0"},

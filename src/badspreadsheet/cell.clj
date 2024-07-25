@@ -1,6 +1,7 @@
 (ns badspreadsheet.cell
   (:require
    [badspreadsheet.machines :as machines]
+   [badspreadsheet.util :as u]
    [clojure.edn :as edn]
    [clojure.walk :as walk]))
 
@@ -103,10 +104,10 @@
 
 (defmethod c# :region
   ([_ [x1 y1] w h]
-   (let [positions (machines/window [x1 y1] w h)]
+   (let [positions (u/window [x1 y1] w h)]
      positions))
   ([_ [x1 y1] [x2 y2]]
-   (let [positions (machines/window [x1 y1] [x2 y2])]
+   (let [positions (u/window [x1 y1] [x2 y2])]
      positions)))
 
 (defmethod c# :neighbours
@@ -123,10 +124,10 @@
 
 (defmethod c# :relative-region
   ([_ [x1 y1] w h pos]
-   (let [refs (map (fn [v] (mapv + v pos)) (machines/window [x1 y1] w h))]
+   (let [refs (map (fn [v] (mapv + v pos)) (u/window [x1 y1] w h))]
      refs))
   ([_ [x1 y1] [x2 y2] pos]
-   (let [refs (map (fn [v] (mapv + v pos)) (machines/window [x1 y1] [x2 y2]))]
+   (let [refs (map (fn [v] (mapv + v pos)) (u/window [x1 y1] [x2 y2]))]
      refs)))
 
 (defn- get-c#s

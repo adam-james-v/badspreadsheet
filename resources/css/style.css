@@ -62,7 +62,38 @@
     padding: 8px;
     text-align: left;
 }
-.smooth, .htmx-swapping, .htmx-added {
-  -moz-transition: all 0.5s ease-in-out;
-  transition: all 0.5s ease-in-out;
+
+.outer-resize-handle {
+  position: absolute;
+  width: 200px; /* Diameter of the large, invisible circle */
+  height: 200px;
+  border-radius: 50%;
+  /* Positioning offsets */
+  transform: translate(-50%, -50%);
 }
+
+.resize-handle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background-color: #00f;
+  border-radius: 51%;
+  opacity: 0.3;
+  transition: opacity 0.3s ease-in-out;
+  transform: translate(-50%, -50%);
+}
+
+.outer-resize-handle:hover .resize-handle {
+    opacity: 1;
+}
+
+.top-left      { top: 0;    left: 0;    cursor: nwse-resize; }
+.top-middle    { top: 0;    left: 50%;  cursor: ns-resize; }
+.top-right     { top: 0;    left: 100%; cursor: nesw-resize; }
+.middle-left   { top: 50%;  left: 0;    cursor: ew-resize; }
+.middle-right  { top: 50%;  left: 100%; cursor: ew-resize; }
+.bottom-left   { top: 100%; left: 0;    cursor: nesw-resize; }
+.bottom-middle { top: 100%; left: 50%;  cursor: ns-resize; }
+.bottom-right  { top: 100%; left: 100%; cursor: nwse-resize; }

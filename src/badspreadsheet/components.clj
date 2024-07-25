@@ -5,6 +5,7 @@
    [clojure.data.codec.base64 :as b64]
    [clojure.java.io :as io]
    [clojure.string :as str]
+   [clojure.pprint :as pp]
    [clojure.walk :as walk]
    [nextjournal.markdown :as md]
    [nextjournal.markdown.transform :as md.transform]
@@ -416,13 +417,34 @@
     (and (map? content)
          (= (:control content) :drawing-canvas))))
 
+(defn estimate-size
+  ([data] (estimate-size data 0))
+  ([data depth]
+   (cond
+     (nil? data) 4  ; "nil"
+     (number? data) 8  ; Rough estimate for numbers
+     (string? data) (count data)
+     (keyword? data) (+ 1 (count (name data)))
+     (symbol? data) (count (str data))
+     (vector? data) (if (< depth 2)
+                      (reduce + 2 (map #(estimate-size % (inc depth)) data))
+                      (+ 2 (* (count data) 3)))  ; [...]
+     (map? data) (if (< depth 2)
+                   (reduce + 2 (mapcat #(map (fn [x] (estimate-size x (inc depth))) %) data))
+                   (+ 2 (* (count data) 5)))  ; {...}
+     (seq? data) (if (< depth 2)
+                   (reduce + 1 (map #(estimate-size % (inc depth)) data))
+                   (+ 1 (* (count data) 3)))  ; (...)
+     :else 10)))  ; Default estimate for other types
+
 (defn render-value
   [value]
   (cond
+    (> (estimate-size value) 1000)       "Value too large for display."
     (and (vector? value)
          (not (keyword? (first value)))) (pr-str value)
     (hiccup? value)                      value
-    (map? value)                         (with-out-str (clojure.pprint/pprint value))
+    (map? value)                         (with-out-str (pp/pprint value))
     :else                                (str value)))
 
 ;; maybe start using kindly here
@@ -458,9 +480,10 @@
                                  :width            w
                                  :height           h
                                  :z-index          "1000"}]
-     [:div {:cursor "auto"
-            :id     (format "entity%s" id)}
-        [:div
+     [:div
+      {:cursor "auto"
+       :id     (format "entity%s" id)}
+        [:div.resizeable
          {:id    (format "movable%s" id)
           :style (merge
                   editor-style
@@ -581,9 +604,10 @@
         wrap-fn             (if init
                               wrap-js-in-content-loaded
                               identity)]
-    [:div {:cursor "auto"
-           :id     (format "entity%s" id)}
-     [:div
+    [:div
+     {:cursor "auto"
+      :id     (format "entity%s" id)}
+     [:div.resizable
       {:id    (format "movable%s" id)
        :style (merge
                editor-style
@@ -612,6 +636,15 @@
                 :padding   2
                 :font-size "7pt"}}
        "ID:" id]
+      [:<>
+       [:div.outer-resize-handle.top-left [:div.resize-handle]]
+       [:div.outer-resize-handle.top-middle [:div.resize-handle]]
+       [:div.outer-resize-handle.top-right [:div.resize-handle]]
+       [:div.outer-resize-handle.middle-right [:div.resize-handle]]
+       [:div.outer-resize-handle.bottom-right [:div.resize-handle]]
+       [:div.outer-resize-handle.bottom-middle [:div.resize-handle]]
+       [:div.outer-resize-handle.bottom-left [:div.resize-handle]]
+       [:div.outer-resize-handle.middle-left [:div.resize-handle]]]
       ;; scripts
       [:<>
        #_(when true #_(= display :control)
@@ -642,7 +675,7 @@
                  :else nil))
        (when enable-editor?
          [:script (wrap-fn (clj->js `(createEditorInstance ~id)))])
-       [:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
+       #_[:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
 
 (def button-style-map
   {:width         "40px"
@@ -677,12 +710,16 @@
                           :margin          "0 auto"
                           :box-sizing      "border-box"}]
     [:div.prevent-cursor-move {:style button-bar-style}
-     (button "🏠" "Return To Home Position." (format "setContainerPosition(%s, %s);" 50 50))
-     (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
-     #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
-     #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
+     (button "⌾" "Return To Home Position." (format "setContainerPosition(%s, %s);" 50 50))
      (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
              (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
+     #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
+     #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
+     [:div "|"]
+     (button "⏯" "Process One Step." (fe-send {:dispatch :run-command
+                                          :command  :process-one}))
+     [:div "|"]
+     (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
      (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
      [:div {:style {:font-size   "8pt"
                     :width       0
