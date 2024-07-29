@@ -11,7 +11,7 @@
                       :store     {:container-coords [0 0]}
                       :size      20
                       :camera    {:location [0 0]}
-                      :waypoints []
+                      :waypoints {}
                       :cursor    {:location [0 0]
                                   :size     [3 3]}}))
 
@@ -61,9 +61,13 @@ body {
      :top       0
      :transform (let [[x y] (get-in state [:store :container-coords] [0 0])]
                   (format "translate(%spx, %spx);" x y))}}
-   (into [:<>] (for [[_ cell] (:machines @c/cells)]
-                 (bc/cell cell state {:init true})))
-      (bc/cursor (:cursor state) state)])
+   (into
+    [:<>]
+    (for [[_ cell] (:machines @c/cells)]
+      (bc/cell cell state {:init true})))
+   (bc/cursor (:cursor state) state)
+   bc/origin
+   (bc/waypoints state)])
 
 (defn init!
   []
@@ -247,6 +251,20 @@ body {
   (let [id (parse-long (str/replace id "movable" ""))]
     (c/c-merge id {:position [x y]
                    :size     [w h]})))
+
+(defmethod server/data-handler :toggle-waypoint
+  [_]
+  (let [position (vec (get-in @state [:cursor :location]))]
+    (println "POSITION: " position)
+    (swap! state update :waypoints
+           (fn [ws]
+             (if (contains? ws position)
+               (dissoc ws position)
+               (assoc ws position {:label  ""
+                                   :colour (bc/random-colour)}))))
+    (server/broadcast!
+     server-map
+     (bc/waypoints @state))))
 
 (defn start!
   []

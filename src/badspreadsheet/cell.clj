@@ -68,8 +68,9 @@
 (defn c-merge
   "Like `merge` but for cells."
   [ref-or-machine & maps]
-  (let [new-cell (apply merge (machines/get-machine ref-or-machine) maps)]
-    (swap! cells assoc-in [:machines (:id new-cell)] new-cell)))
+  (when-let [m (machines/get-machine ref-or-machine)]
+    (let [new-cell (apply merge m maps)]
+      (swap! cells assoc-in [:machines (:id new-cell)] new-cell))))
 
 (defmulti c#
   (fn [k & _args] k))

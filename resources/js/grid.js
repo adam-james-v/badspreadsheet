@@ -72,6 +72,14 @@ function setContainerPosition(x, y) {
   targetTranslateY = y;
 }
 
+function centerPosition(x, y) {
+  let nX = ( 0 - x ) +  window.innerWidth / 2;
+  let nY = ( 0 - y ) + window.innerHeight / 2;
+  sendCoordinatesToServer(nX, nY);
+  targetTranslateX = nX;
+  targetTranslateY = nY;
+}
+
 function sendPageExtents(gridSize) {
   const w = Math.floor(window.innerWidth / gridSize);
   const h = Math.floor(window.innerHeight / gridSize);

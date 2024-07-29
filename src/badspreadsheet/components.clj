@@ -179,56 +179,6 @@
                    :backdrop-filter "blur(1px)"
                    :position        "relative"}}]]))))
 
-(defn random-waypoint-color
-  []
-  (let [[a b c d e f] (repeatedly 6 #(+ 20 (rand-int 236)))]
-    (format "rgb(%s,%s,%s)" a b c)
-    #_(str "linear-gradient(" (rand-int 360) "deg, rgb(" a "," b "," c ") 10%, rgb(" d "," e "," f ") 100%)")))
-
-(defn waypoint
-  [{:keys [position label colour]} {:keys [size camera extents]}]
-  (let [c                 (:location camera)
-        [wx wy :as w]     position
-        [renderx rendery] (mapv + w (mapv #(* -1 %) c))
-        [ex ey]           extents
-        px                (* size (max 0.25 (min renderx (- ex 0.25))))
-        py                (* size (max 0.25 (min rendery (- ey 0.25))))]
-    (when (visible? c extents w)
-      [:div.waypoint
-       {:id    (format "waypoint-%s-%s" wx wy)
-        :style {:position "absolute"
-                :left     px
-                :top      py}}
-       [:span {:style {:height   0
-                       :position "relative"
-                       :display  "block"}} (or label "")]
-       [:div
-        {:style {:width         12
-                 :height        12
-                 :left          (- 6)
-                 :top           (- 6)
-                 :box-sizing    "border-box"
-                 :border-radius 6
-                 :background    colour
-                 :position      "relative"}}]
-       [:div
-        {:onclick
-         (str/join
-          ";\n"
-          [(fe-send {:dispatch :set-camera :position [(- wx (int (/ ex 2)))
-                                                      (- wy (int (/ ey 2)))]})
-           #_(fe-send {:dispatch :move-cursor :position [(inc wx) (inc wy)]})])
-         :style {:cursor          "crosshair"
-                 :width           15
-                 :height          15
-                 :left            (- 7.5)
-                 :top             (- (+ 7.5 12))
-                 :box-sizing      "border-box"
-                 :border          "1.5px solid rgba(235, 215, 235, 0.4)"
-                 :border-radius   7.5
-                 :backdrop-filter "blur(1px)"
-                 :position        "relative"}}]])))
-
 (defn collect-location-refs
   [form]
   (letfn [(collect [x]
@@ -637,14 +587,14 @@
                 :font-size "7pt"}}
        "ID:" id]
       [:<>
-       [:div.outer-resize-handle.top-left [:div.resize-handle]]
-       [:div.outer-resize-handle.top-middle [:div.resize-handle]]
-       [:div.outer-resize-handle.top-right [:div.resize-handle]]
-       [:div.outer-resize-handle.middle-right [:div.resize-handle]]
-       [:div.outer-resize-handle.bottom-right [:div.resize-handle]]
-       [:div.outer-resize-handle.bottom-middle [:div.resize-handle]]
-       [:div.outer-resize-handle.bottom-left [:div.resize-handle]]
-       [:div.outer-resize-handle.middle-left [:div.resize-handle]]]
+       [:div.resize-handle.tl]
+       [:div.resize-handle.tm]
+       [:div.resize-handle.tr]
+       [:div.resize-handle.mr]
+       [:div.resize-handle.br]
+       [:div.resize-handle.bm]
+       [:div.resize-handle.bl]
+       [:div.resize-handle.ml]]
       ;; scripts
       [:<>
        #_(when true #_(= display :control)
@@ -710,9 +660,9 @@
                           :margin          "0 auto"
                           :box-sizing      "border-box"}]
     [:div.prevent-cursor-move {:style button-bar-style}
-     (button "⌾" "Return To Home Position." (format "setContainerPosition(%s, %s);" 50 50))
+     (button "⌾" "Return To Home Position." (format "centerPosition(%s, %s);" 0 0))
      (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
-             (fe-send {:dispatch :toggle-waypoint :position cursor-pos}))
+             (fe-send {:dispatch :toggle-waypoint}))
      #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
      #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
      [:div "|"]
@@ -770,7 +720,47 @@
                      :top            (* y global-size)
                      :width          cursor-width
                      :height         cursor-height}}
-       (cursor-icon cursor-width cursor-height)]
-      (into [:div#waypoints
-             (home-point state)]
-            (mapv #(waypoint %1 state) (vals waypoints)))]]))
+       (cursor-icon cursor-width cursor-height)]]]))
+
+(defn random-colour
+  []
+  (let [[a b c] (repeatedly 3 #(+ 20 (rand-int 236)))]
+    (format "rgb(%s,%s,%s)" a b c)))
+
+(def origin
+  [:svg#origin
+   {:style {:transform      "translate(-8px,-8px);"
+            :width          16
+            :height         16
+            :z-index        "100000"
+            :position       "absolute"}}
+   [:circle {:r       6 :cx 8 :cy 8
+             :fill    "#B9C2C5"
+             :stroke  "black"
+             :onclick (format "centerPosition(%s, %s);" 0 0)
+             :style   {:cursor "crosshair"}}]])
+
+(defn waypoint
+  [{:keys [size]} [x y] colour label]
+  [:svg.waypoint
+   {:style {:transform      "translate(-8px,-8px);"
+            :width          16
+            :height         16
+            :z-index        "100000"
+            :position       "absolute"
+            :left           (* size x)
+            :top            (* size y)}}
+   [:circle {:onclick (format "centerPosition(%s, %s);" (* size x) (* size y))
+             :style   {:cursor "crosshair"}
+             :r       6 :cx 8 :cy 8
+             :fill    colour}]
+   (when (not (str/blank? label)) [:text label])])
+
+(defn waypoints
+  [{:keys [waypoints] :as state}]
+  (into
+   [:div#waypoints]
+   (map
+    (fn [[pos {:keys [label colour]}]]
+      (waypoint state pos colour label))
+    waypoints)))

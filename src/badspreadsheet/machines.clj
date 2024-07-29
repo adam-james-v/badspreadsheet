@@ -194,9 +194,10 @@
 
 (defn- placement-allowed?
   [state id position]
-  (let [machine-id (get-pos state position)]
-    (or (nil? machine-id)
-        (= machine-id id))))
+  (when id
+    (let [machine-id (get-pos state position)]
+      (or (nil? machine-id)
+          (= machine-id id)))))
 
 (defn add-machine
   ([state {:keys [id position size sources operation initial-output] :as _machine-def}]

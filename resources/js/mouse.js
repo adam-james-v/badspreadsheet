@@ -54,6 +54,7 @@ function shouldPreventMove(e) {
   return ( e.target.tagName.toLowerCase() === "input" ||
            e.target.tagName.toLowerCase() === "button" ||
            isDescendantOfClass( e.target, "cm-editor") ||
+           isDescendantOfClass( e.target, "waypoint") ||
            isDescendantOfClass( e.target, "resizable") );
   //return ( e.target.classList.contains("cm-content") );
   //return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
@@ -183,7 +184,6 @@ function initMouseEventsListener() {
   }
 }
 
-
 document.addEventListener('DOMContentLoaded', () => {
   initializeResizableElements();
 });
@@ -198,29 +198,15 @@ function snapToGrid(value) {
 function initializeResizableElements() {
   const container = document.getElementById('cell-container')
   container.addEventListener('mousedown', handleMouseDown);
-  //window.addEventListener('mousemove', handleMouseMove);
-}
-
-function handleMouseMove(e) {
-  const handles = document.querySelectorAll('.resize-handle');
-  handles.forEach(handle => {
-    const rect = handle.getBoundingClientRect();
-    const closestX = Math.min(Math.max(e.clientX, rect.left), rect.right);
-    const closestY = Math.min(Math.max(e.clientY, rect.top), rect.bottom);
-    const distance = Math.sqrt(
-      Math.pow(e.clientX - closestX, 2) + Math.pow(e.clientY - closestY, 2)
-    );
-    if (distance <= HANDLE_VISIBILITY_THRESHOLD) {
-      const opacity = 1 - (distance / HANDLE_VISIBILITY_THRESHOLD);
-      handle.style.opacity = opacity.toFixed(2);
-    } else {
-      handle.style.opacity = '0';
-    }
-  });
 }
 
 function handleMouseDown(e) {
-  if (!e.target.classList.contains('resize-handle')) return;
+  const isResize = e.target.classList.contains('resize-handle') || e.target.classList.contains('inner-handle');
+  //const isMove = e.altKey && e.target.classList.contains('drag-handle');
+  const isMove = e.altKey && isDescendantOfClass( e.target, "cm-editor");
+
+  if (!isResize && !isMove) return;
+
 
   const handle = e.target;
   const element = handle.closest('.resizable');
@@ -234,33 +220,44 @@ function handleMouseDown(e) {
   const startLeft = element.offsetLeft;
   const startTop = element.offsetTop;
 
-  function resize(e) {
+  function handleMove(e) {
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    const newLeft = snapToGrid(startLeft + dx);
+    const newTop = snapToGrid(startTop + dy);
+
+    element.style.left = `${newLeft}px`;
+    element.style.top = `${newTop}px`;
+  }
+
+  function handleResize(e) {
     let newWidth, newHeight, newLeft, newTop;
 
-    if (handle.classList.contains('top-left') ||
-        handle.classList.contains('top-right') ||
-        handle.classList.contains('bottom-left') ||
-        handle.classList.contains('bottom-right')) {
+    if (handle.classList.contains('tl') ||
+        handle.classList.contains('tr') ||
+        handle.classList.contains('bl') ||
+        handle.classList.contains('br')) {
       // Corner handles - resize both width and height
-      newWidth = snapToGrid(startWidth + (handle.classList.contains('top-left') || handle.classList.contains('bottom-left') ? startX - e.clientX : e.clientX - startX));
-      newHeight = snapToGrid(startHeight + (handle.classList.contains('top-left') || handle.classList.contains('top-right') ? startY - e.clientY : e.clientY - startY));
+      newWidth  = snapToGrid(startWidth  + (handle.classList.contains('tl') || handle.classList.contains('bl') ? startX - e.clientX : e.clientX - startX));
+      newHeight = snapToGrid(startHeight + (handle.classList.contains('tl') || handle.classList.contains('tr') ? startY - e.clientY : e.clientY - startY));
 
-      if (handle.classList.contains('top-left') || handle.classList.contains('top-right')) {
+      if (handle.classList.contains('tl') || handle.classList.contains('tr')) {
         newTop = snapToGrid(startTop - (newHeight - startHeight));
       }
-      if (handle.classList.contains('top-left') || handle.classList.contains('bottom-left')) {
+      if (handle.classList.contains('tl') || handle.classList.contains('bl')) {
         newLeft = snapToGrid(startLeft - (newWidth - startWidth));
       }
-    } else if (handle.classList.contains('top-middle') || handle.classList.contains('bottom-middle')) {
+    } else if (handle.classList.contains('tm') || handle.classList.contains('bm')) {
       // Vertical edge handles - resize height only
-      newHeight = snapToGrid(startHeight + (handle.classList.contains('top-middle') ? startY - e.clientY : e.clientY - startY));
-      if (handle.classList.contains('top-middle')) {
+      newHeight = snapToGrid(startHeight + (handle.classList.contains('tm') ? startY - e.clientY : e.clientY - startY));
+      if (handle.classList.contains('tm')) {
         newTop = snapToGrid(startTop - (newHeight - startHeight));
       }
     } else {
       // Horizontal edge handles - resize width only
-      newWidth = snapToGrid(startWidth + (handle.classList.contains('middle-left') ? startX - e.clientX : e.clientX - startX));
-      if (handle.classList.contains('middle-left')) {
+      newWidth = snapToGrid(startWidth + (handle.classList.contains('ml') ? startX - e.clientX : e.clientX - startX));
+      if (handle.classList.contains('ml')) {
         newLeft = snapToGrid(startLeft - (newWidth - startWidth));
       }
     }
@@ -273,9 +270,17 @@ function handleMouseDown(e) {
 
   }
 
-  function stopResize() {
-    document.removeEventListener('mousemove', resize);
-    document.removeEventListener('mouseup', stopResize);
+  function handleMouseMove(e) {
+    if (isMove) {
+      handleMove(e);
+    } else {
+      handleResize(e);
+    }
+  }
+
+  function stopAction() {
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', stopAction);
     sendResizeDataToBackend(element.id,
                             element.offsetWidth / GRID_SIZE,
                             element.offsetHeight / GRID_SIZE,
@@ -283,8 +288,8 @@ function handleMouseDown(e) {
                             element.offsetTop / GRID_SIZE);
   }
 
-  document.addEventListener('mousemove', resize);
-  document.addEventListener('mouseup', stopResize);
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', stopAction);
 }
 
 function sendResizeDataToBackend(elementId, width, height, x, y) {
