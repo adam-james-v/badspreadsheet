@@ -34,7 +34,7 @@ function elementIsActive() {
 
 function isDragHandle(el) {
   const id = el.getAttribute("id");
-  return id !== null && id.includes("drag-handle");
+  return id !== null && id.includes("dragd-handle");
 }
 
 function isDescendantOfClass(element, className) {
@@ -55,6 +55,7 @@ function shouldPreventMove(e) {
            e.target.tagName.toLowerCase() === "button" ||
            isDescendantOfClass( e.target, "cm-editor") ||
            isDescendantOfClass( e.target, "waypoint") ||
+           isDescendantOfClass( e.target, "prevent-cursor-move") ||
            isDescendantOfClass( e.target, "resizable") );
   //return ( e.target.classList.contains("cm-content") );
   //return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
@@ -73,7 +74,9 @@ function initMouseEventsListener() {
 
   document.addEventListener('mousedown', (e) => {
 
-    if (shouldPreventMove(e)) { return };
+    if (shouldPreventMove(e)) {
+      return
+    };
 
     const rect = cellContainer.getBoundingClientRect();
     const x = e.clientX - rect.left; // x position within the element.
@@ -203,7 +206,7 @@ function initializeResizableElements() {
 function handleMouseDown(e) {
   const isResize = e.target.classList.contains('resize-handle') || e.target.classList.contains('inner-handle');
   //const isMove = e.altKey && e.target.classList.contains('drag-handle');
-  const isMove = e.altKey && isDescendantOfClass( e.target, "cm-editor");
+  const isMove = ( e.altKey || isDescendantOfClass( e.target, "drag-handle") ) && isDescendantOfClass( e.target, "resizable");
 
   if (!isResize && !isMove) return;
 
@@ -219,6 +222,8 @@ function handleMouseDown(e) {
   const startHeight = element.offsetHeight;
   const startLeft = element.offsetLeft;
   const startTop = element.offsetTop;
+
+  element.style.overflow = 'hidden';
 
   function handleMove(e) {
     const dx = e.clientX - startX;
@@ -279,6 +284,7 @@ function handleMouseDown(e) {
   }
 
   function stopAction() {
+    element.style.overflow = 'visible';
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', stopAction);
     sendResizeDataToBackend(element.id,
@@ -293,8 +299,6 @@ function handleMouseDown(e) {
 }
 
 function sendResizeDataToBackend(elementId, width, height, x, y) {
-  // Implement this function to send data to your backend
-  console.log(`Resized ${elementId}: width=${width}, height=${height}, x=${x}, y=${y}`);
   send({"dispatch": "adjust-cell",
         "id": elementId,
         "x": x,

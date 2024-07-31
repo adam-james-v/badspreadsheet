@@ -35,7 +35,8 @@
   "Destroy all of the cells"
   []
   (reset! cell-counter -1)
-  (reset! cells {:machines {} :grid {}}))
+  (reset! cells {:machines {} :grid {}})
+  (machines/process-one!))
 
 (defn get-cell
   [ref-or-machine]
@@ -56,21 +57,24 @@
   ([ref-or-machine key val] (c-assoc ref-or-machine key val nil nil))
   ([ref-or-machine key val & kvs]
    (let [new-cell (apply (partial assoc (machines/get-machine ref-or-machine)) (concat [key val] (remove nil? kvs)))]
-     (swap! cells assoc-in [:machines (:id new-cell)] new-cell))))
+     (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
+     (machines/process-one!))))
 
 (defn c-dissoc
   "Like `dissoc` but for cells."
   ([ref-or-machine key] (c-dissoc ref-or-machine key nil))
   ([ref-or-machine key & ks]
    (let [new-cell (apply (partial dissoc (machines/get-machine ref-or-machine)) (conj ks key))]
-     (swap! cells assoc-in [:machines (:id new-cell)] new-cell))))
+     (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
+     (machines/process-one!))))
 
 (defn c-merge
   "Like `merge` but for cells."
   [ref-or-machine & maps]
   (when-let [m (machines/get-machine ref-or-machine)]
     (let [new-cell (apply merge m maps)]
-      (swap! cells assoc-in [:machines (:id new-cell)] new-cell))))
+      (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
+      (machines/process-one!))))
 
 (defmulti c#
   (fn [k & _args] k))
@@ -164,9 +168,22 @@
      form)
     @symbols))
 
+(defn- display-hint?
+  [maybe-display-hint]
+  (and (map? maybe-display-hint)
+       (contains? maybe-display-hint :control)))
+
 (defn process-form
-  [pos form]
-  (let [c#s (get-c#s form)]
+  [pos initial-form]
+  (let [c#s          (get-c#s initial-form)
+        maybe-display-hint (second initial-form)
+        form         (if (display-hint? maybe-display-hint)
+                       (let [[f _k & rest] initial-form]
+                         (conj rest f))
+                       initial-form)
+        output       (cond-> {:form form}
+                       (display-hint? maybe-display-hint)
+                       (assoc :display-hint (:control maybe-display-hint)))]
     (if (seq c#s)
       (let [let-syms            (vec (repeatedly (count c#s) #(gensym "c#")))
             let-smap            (zipmap c#s let-syms)
@@ -200,28 +217,49 @@
             inner-form          (if (= do? 'do)
                                   (rest inner)
                                   inner)]
-        {:form           form
-         :processed-form `(fn [~fn-syms]
-                            (let ~let-binding
-                              ~@inner-form))
-         :refs           (vec (mapcat second refs))})
+        (merge
+         output
+         {:processed-form `(fn [~fn-syms]
+                             (let ~let-binding
+                               ~@inner-form))
+          :refs           (vec (mapcat second refs))}))
       (let [body (rest form)]
-        {:form           form
-         :processed-form `(fn [] ~@body)}))))
+        (merge
+         output
+         {:processed-form `(fn [] ~@body)})))))
 
 (defn formula
   "Given a form string, produce a working cell. Returns the newly created cell's ID."
   ([position form-or-str] (formula position [2 4] form-or-str))
   ([position size form-or-str]
-   (let [form                          (if (string? form-or-str)
-                                         (edn/read-string (format "(do %s)" form-or-str))
-                                         form-or-str)
-         {:keys [processed-form refs]} (process-form position form)
-         f                             (eval processed-form)
-         id                            (or (machines/get-pos @cells position) (new-cell-id))
-         size                          (get-in @cells [:machines id :size] size)]
+   (let [form                                       (if (string? form-or-str)
+                                                      (edn/read-string (format "(do %s)" form-or-str))
+                                                      form-or-str)
+         {:keys [processed-form refs display-hint]} (process-form position form)
+         f                                          (eval processed-form)
+         id                                         (or (machines/get-pos @cells position) (new-cell-id))
+         size                                       (get-in @cells [:machines id :size] size)]
      (machines/add-machine! id position size refs f)
-     (c-assoc id :content (if (string? form-or-str)
-                            form-or-str
-                            (str form-or-str)))
+     (c-merge  id {:display-hint display-hint
+                   :content      (if (string? form-or-str)
+                                   form-or-str
+                                   (str form-or-str))})
+     id)))
+
+(defn update-formula
+  "Given a form string, produce a working cell. Returns the newly created cell's ID."
+  ([id form-or-str]
+   (let [{:keys [size position display]
+          :or   {display :editor}}                  (get-in @cells [:machines id])
+         form                                       (if (string? form-or-str)
+                                                      (edn/read-string (format "(do %s)" form-or-str))
+                                                      form-or-str)
+         {:keys [processed-form refs display-hint]} (process-form position form)
+         f                                          (eval processed-form)]
+     (machines/add-machine! id position size refs f)
+     (c-merge id {:display      display
+                  :display-hint display-hint
+                  :content      (if (string? form-or-str)
+                                  form-or-str
+                                  (str form-or-str))})
      id)))

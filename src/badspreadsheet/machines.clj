@@ -37,7 +37,7 @@
     ;; ref is a machine already, still want to get the machine from state by same ID
     (get-in state [:machines (:id ref)]))))
 
-(defn- machine-id->positions
+(defn- machine-id->pos-sets
   [{:keys [grid]} machine-id]
   (keep
    (fn [[pos id]]
@@ -45,7 +45,6 @@
        pos))
    grid))
 
-#_
 (defn- update-grid
   [{:keys [machines] :as state}]
   (let [state (update state :grid
@@ -55,14 +54,12 @@
                                          grid))))]
     (reduce
      (fn a [acc-state {:keys [id position size] :as _machine}]
-       (let [[w h] size
+       (let [[w h]         size
              new-positions (set (u/window position w h))
-             old-positions (set (machine-id->positions acc-state id))]
-         (if (not= new-positions old-positions)
-           (-> acc-state
-               (update :grid (fn [grid] (apply dissoc grid old-positions)))
-               (update :grid (fn [grid] (merge grid (zipmap new-positions (repeat id))))))
-           acc-state)))
+             old-positions (machine-id->pos-sets acc-state id)]
+         (-> acc-state
+             (update :grid (fn [grid] (apply (partial dissoc grid) old-positions)))
+             (update :grid assoc new-positions id))))
      state
      (vals (:machines state)))))
 
@@ -79,7 +76,7 @@
                 (canonical-position state source)
                 source)))
        (partition-by vector?)
-       (mapcat (fn [[f & r :as l]]
+       (mapcat (fn [[f & _r :as l]]
                  (if (vector? f)
                    (distinct l)
                    l)))
@@ -162,11 +159,11 @@
 (defn- process-cycle
   [state]
   (-> state
+      update-grid
       copy-outputs-to-inputs
       clear-all-outputs
       run-all-machines
-      clear-all-inputs
-      #_update-grid))
+      clear-all-inputs))
 
 (defn- process
   [state]
@@ -186,11 +183,11 @@
   (swap! state
          (fn [s]
            (-> s
+               update-grid
                copy-outputs-to-inputs
                clear-all-outputs
                (run-all-machines :force)
-               clear-all-inputs
-               #_update-grid))))
+               clear-all-inputs))))
 
 (defn- placement-allowed?
   [state id position]
@@ -247,13 +244,18 @@
                                (if (vector? machine-ref)
                                  (get-pos @state machine-ref)
                                  machine-ref))
-        {:keys [position size]} (get-in @state [:machines id])
-        [w h] size]
+        {:keys [position]} (get-in @state [:machines id])]
     (when position
-      (swap! state (fn [s]
-                     (-> s
-                         (update :machines dissoc id)
-                         (update :grid (fn [grid] (dissoc grid (set (u/window position w h))))))))
+      (swap! state
+             (fn [s]
+               (-> s
+                   (update :machines dissoc id)
+                   (update :grid (fn [grid]
+                                   (let [pos-sets (keep (fn [[pos-set cell-id]]
+                                                          (when (= cell-id id)
+                                                            pos-set))
+                                                        grid)]
+                                     (apply (partial dissoc grid) pos-sets)))))))
       (process-one!))))
 
 (defn remove-machines!

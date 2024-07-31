@@ -83,7 +83,8 @@ function centerPosition(x, y) {
 function sendPageExtents(gridSize) {
   const w = Math.floor(window.innerWidth / gridSize);
   const h = Math.floor(window.innerHeight / gridSize);
-  send({"dispatch": "store-extents", "extents": [w, h]});
+  send({"dispatch": "store",
+        "extents": [w, h]});
 }
 
 let globalGridSize = 20;

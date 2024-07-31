@@ -67,7 +67,8 @@ body {
       (bc/cell cell state {:init true})))
    (bc/cursor (:cursor state) state)
    bc/origin
-   (bc/waypoints state)])
+   (bc/waypoints state)
+   #_(bc/position-refs state @c/cells)])
 
 (defn init!
   []
@@ -120,7 +121,13 @@ body {
     (server/broadcast!
      server-map
      ;; note that state here is NOT the cell state, but the sheet state
-     (mapv #(bc/cell % @state) (vals (:machines cells-state))))
+     (let [r (concat
+              (mapv (fn [{:keys [id] :as cell}]
+                       (when-not (= id (get-in @state [:store :active-element]))
+                        (bc/cell cell @state)))
+                    (vals (:machines cells-state)))
+              #_[(bc/position-refs @state cells-state)])]
+       r))
     (catch Exception _e nil)))
 
 (add-watch c/cells :render #'render)
@@ -201,7 +208,7 @@ body {
   [_]
   (let [position (vec (get-in @state [:cursor :location]))
         [w h]    (vec (get-in @state [:cursor :size]))
-        cells     (mapv c/get-cell (u/window position w h))]
+        cells    (distinct (mapv c/get-cell (u/window position w h)))]
     (c/remove! (mapv :id cells))
     (server/broadcast!
      server-map
@@ -217,18 +224,13 @@ body {
     (move-cursor! [x y])))
 
 (defmethod server/data-handler :code
-  [{:keys [id code]}]
-  (c/formula (c/c-get id :position) code))
+  [{:keys [id code] :as a}]
+  (def asdf a)
+  (c/update-formula id code))
 
 (defmethod server/data-handler :mouse-event
   [{:keys [location]}]
   (move-cursor! (rest location)))
-
-#_
-(defmethod server/data-handler :make-active
-  [{:keys [id]}]
-  (let [id (parse-long (str/replace id "movable" ""))]
-    (swap! state assoc :active id)))
 
 (defmethod server/data-handler :store
   [data]
@@ -249,13 +251,13 @@ body {
 (defmethod server/data-handler :adjust-cell
   [{:keys [id x y w h]}]
   (let [id (parse-long (str/replace id "movable" ""))]
-    (c/c-merge id {:position [x y]
-                   :size     [w h]})))
+    (when id
+      (c/c-merge id {:position [x y]
+                     :size     [w h]}))))
 
 (defmethod server/data-handler :toggle-waypoint
   [_]
   (let [position (vec (get-in @state [:cursor :location]))]
-    (println "POSITION: " position)
     (swap! state update :waypoints
            (fn [ws]
              (if (contains? ws position)
@@ -265,6 +267,25 @@ body {
     (server/broadcast!
      server-map
      (bc/waypoints @state))))
+
+(def next-display
+  {:editor :control
+   :control :value
+   :value :editor})
+
+(defmethod server/data-handler :toggle-display
+  [{:keys [id]}]
+  (let [position (vec (get-in @state [:cursor :location]))
+        [w h]    (vec (get-in @state [:cursor :size]))
+        cells    (remove nil? (distinct (mapv c/get-cell (if id
+                                                           [id]
+                                                           (u/window position w h)))))]
+    ;; todo: create a bulk op here to only swap the c/cells once
+    (doseq [{:keys [id display display-hint]} cells]
+      (c/c-assoc id :display (or (if display-hint
+                                   (next-display display)
+                                   ({:editor :value
+                                     :value  :editor} display)) :value)))))
 
 (defn start!
   []

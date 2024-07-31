@@ -390,12 +390,12 @@
 (defn render-value
   [value]
   (cond
-    (> (estimate-size value) 1000)       "Value too large for display."
+    (> (estimate-size value) 10000)       "Value too large for display."
     (and (vector? value)
          (not (keyword? (first value)))) (pr-str value)
     (hiccup? value)                      value
-    (map? value)                         (with-out-str (pp/pprint value))
-    :else                                (str value)))
+    #_#_(map? value)                         (with-out-str (pp/pprint value))
+    :else                                (with-out-str (pp/pprint value))))
 
 ;; maybe start using kindly here
 (defn render-value2
@@ -406,87 +406,6 @@
              (render-markdown-string value)
              (render-value value))
      (render-value value))])
-
-(defn editor
-  ([entity state] (editor false entity state))
-  ([init? {:keys [display location content id size]} state]
-   (let [wrap                   (if init? wrap-js-in-content-loaded identity)
-         {global-size :size
-          camera      :camera}  state
-         enable-editor?         (= display :content)
-         {camera-loc :location} camera
-         [x y]                  (mapv - location camera-loc)
-         [nx ny]                size
-         w                      (* nx global-size)
-         h                      (* ny global-size)
-         left                   (* x global-size)
-         top                    (* y global-size)
-         editor-style           {:background-color "rgba(255,255,255,0.125);"
-                                 :box-sizing       "border-box"
-                                 :overflow         "hidden"
-                                 :position         "absolute"
-                                 :left             left
-                                 :top              top
-                                 :width            w
-                                 :height           h
-                                 :z-index          "1000"}]
-     [:div
-      {:cursor "auto"
-       :id     (format "entity%s" id)}
-        [:div.resizeable
-         {:id    (format "movable%s" id)
-          :style (merge
-                  editor-style
-                  (when enable-editor?
-                    {:overflow "visible"
-                     :filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
-         [:div {:style {:height  (* ny global-size)
-                        :display (if (#{:none :content :control} display) "none" "block")}}
-          (render-value2 {:id      id
-                          :value   (c/value id)
-                          :display display})]
-         [:div {:id    (str id)
-                :style {:display (if enable-editor? "block" "none")
-                        :height  (* ny global-size)}}
-          [:hiccup/raw-html content]]
-         [:div
-          {:style {:position  "absolute"
-                   :top       0
-                   :right     0
-                   :padding   2
-                   :font-size "7pt"}}
-          "ID:" id]
-         ;; scripts
-         [:<>
-          (when (= display :control)
-            (cond
-              (number-content? content)
-              [:script ((if init? wrap-js-in-content-loaded identity) (clj->js `(makeNumberInput ~id)))]
-
-              (points-content? content)
-              [:points-editor
-               {:id          id
-                :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
-
-              (touch-tilt-control? content)
-              [:touch-tilt-control
-               {:style {:display "block"
-                        :width   "100%"
-                        :height  "100%"}
-                :id    id}]
-
-              (drawing-canvas? content)
-              [:drawing-canvas
-               {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
-                :style       {:display "block"
-                              :width   "100%"
-                              :height  "100%"}
-                :id          id}]
-
-              :else nil))
-          (when enable-editor?
-            [:script (wrap (clj->js `(createEditorInstance ~id)))])
-          [:script (wrap (format "attachEntityListeners('movable%s');" id))]]]])))
 
 (def points-editor-template
   [:template#points-editor-template
@@ -532,17 +451,19 @@
     res))
 
 (defn cell
-  [{:keys [id position size content output latest-output]} state & {:keys [init] :or {init false}}]
+  [{:keys [id position size content output display display-hint]
+    :or   {display :editor}}
+   state & {:keys [init] :or {init false}}]
   (let [{global-size :size} state
-        enable-editor?      true
+        enable-editor?      (= :editor display)
         [x y]               position
         [nx ny]             size
-        display             :content
         w                   (* nx global-size)
         h                   (* ny global-size)
         left                (* x global-size)
         top                 (* y global-size)
         editor-style        {:background-color "rgba(255,255,255,0.125);"
+                             :border           "1px solid #C0B6D0"
                              :box-sizing       "border-box"
                              :overflow         "hidden"
                              :position         "absolute"
@@ -551,7 +472,8 @@
                              :width            w
                              :height           h
                              :z-index          "1000"}
-        wrap-fn             (if init
+        should-init?        (and init enable-editor?)
+        wrap-fn             (if should-init?
                               wrap-js-in-content-loaded
                               identity)]
     [:div
@@ -561,25 +483,59 @@
       {:id    (format "movable%s" id)
        :style (merge
                editor-style
-               (when enable-editor?
-                 {:overflow "visible"
-                  #_#_:filter   "drop-shadow(0px 2px 2px rgba(9, 9, 10, 0.35))"}))}
-      ;; value render container
-      #_[:div {:style {:height  (* ny global-size)
-                       :display (if (#{:none :content :control} display) "none" "block")}}
-         (render-value2 {:id      id
-                         :value   (c/value id)
-                         :display display})]
-      ;; content string container
-      [:div {:id    (str id)
-             :style {:display (if enable-editor? "block" "none")
-                     :height  (* ny global-size)}}
-       [:hiccup/raw-html content]]
-      ;; value
-      [:div "Last Output: " (render-value latest-output)]
-      [:div "---- Output: " (render-value output)]
+               {:overflow "visible"})}
+      (case display
+        :editor
+        [:div {:id    (str id)
+               :style {:display "block"
+                       :height  (* ny global-size)}}
+         [:hiccup/raw-html content]]
+
+        :value
+        [:div.value
+         (render-value output)
+         #_[:div "Last Output: " (render-value latest-output)]
+         #_[:div "---- Output: " (render-value output)]]
+
+        :control
+        [:div.control
+         {:style {:width  "100%"
+                  :height "100%"}}
+         [:<>
+          [:div {:id (format "control-container-%s" id)}]
+          (cond
+            (= display-hint :number)
+            [:number-input {:id id} output]
+
+            (= display-hint :mini-sheet)
+            [:mini-spreadsheet {:id id :rows 10 :cols 10}]
+
+            (points-content? content)
+            [:points-editor
+             {:id          id
+              :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
+
+            (touch-tilt-control? content)
+            [:touch-tilt-control
+             {:style {:display "block"
+                      :width   "100%"
+                      :height  "100%"}
+              :id    id}]
+
+            (= display-hint :drawing-canvas)
+            [:drawing-canvas
+             (cond->
+                 {:style       {:display "block"
+                                :width   "100%"
+                                :height  "100%"}
+                  :id          id}
+               output (assoc :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) output))))]
+
+            :else
+            nil)]])
+
       ;; ID tag
-      [:div
+      [:div.noselect
        {:style {:position  "absolute"
                 :top       0
                 :right     0
@@ -587,6 +543,30 @@
                 :font-size "7pt"}}
        "ID:" id]
       [:<>
+       [:button
+        {:title   "Toggle Display"
+         :onclick (fe-send {:dispatch :toggle-display :id id})
+         :style   {:position         "absolute"
+                   :top              -3
+                   :left             "75%"
+                   :transform        "translate(-50%,0);"
+                   :width            20
+                   :height           10
+                   :background-color "teal"
+                   :opacity          "0.2"
+                   :z-index          "10000"}}]
+       [:button.drag-handle
+        {:title "Drag Handle"
+         :style {:cursor           "grab"
+                 :position         "absolute"
+                 :top              -3
+                 :left             "25%"
+                 :transform        "translate(-50%,0);"
+                 :width            20
+                 :height           10
+                 :background-color "purple"
+                 :opacity          "0.2"
+                 :z-index          "10000"}}]
        [:div.resize-handle.tl]
        [:div.resize-handle.tm]
        [:div.resize-handle.tr]
@@ -597,32 +577,6 @@
        [:div.resize-handle.ml]]
       ;; scripts
       [:<>
-       #_(when true #_(= display :control)
-               (cond
-                 (number-content? content)
-                 [:script (wrap-fn (clj->js `(makeNumberInput ~id)))]
-
-                 (points-content? content)
-                 [:points-editor
-                  {:id          id
-                   :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
-
-                 (touch-tilt-control? content)
-                 [:touch-tilt-control
-                  {:style {:display "block"
-                           :width   "100%"
-                           :height  "100%"}
-                   :id    id}]
-
-                 (drawing-canvas? content)
-                 [:drawing-canvas
-                  {:data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (:pts (maybe-read-string content))))
-                   :style       {:display "block"
-                                 :width   "100%"
-                                 :height  "100%"}
-                   :id          id}]
-
-                 :else nil))
        (when enable-editor?
          [:script (wrap-fn (clj->js `(createEditorInstance ~id)))])
        #_[:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
@@ -663,14 +617,15 @@
      (button "⌾" "Return To Home Position." (format "centerPosition(%s, %s);" 0 0))
      (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
              (fe-send {:dispatch :toggle-waypoint}))
-     #_(button "↑" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :up}))
-     #_(button "↓" "Toggle Display Mode." (fe-send {:dispatch :toggle-display :direction :down}))
+     (button "⎚" "Toggle Display Mode." (fe-send {:dispatch :toggle-display}))
      [:div "|"]
      (button "⏯" "Process One Step." (fe-send {:dispatch :run-command
                                           :command  :process-one}))
      [:div "|"]
      (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
      (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
+     [:div "|"]
+     [:div "Cell Count: " (count (:machines @c/cells))]
      [:div {:style {:font-size   "8pt"
                     :width       0
                     :user-select "none"}}
@@ -700,16 +655,18 @@
                            :position "relative"}}
       (let [pos-indicator-str      (format "[%s %s]" ox oy)
             approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
-        [:div {:style {:position    "absolute"
-                       :user-select "none"
-                       :left        (* (- x approx-pos-indicator-w) global-size)
-                       :top         (* (dec y) global-size)}}
+        [:div.noselect
+         {:style {:position    "absolute"
+                  :user-select "none"
+                  :left        (* (- x approx-pos-indicator-w) global-size)
+                  :top         (* (dec y) global-size)}}
          pos-indicator-str])
       (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
-        [:div {:style {:position    "absolute"
-                       :user-select "none"
-                       :left        (* (+ x nx) global-size)
-                       :top         (* (+ y ny) global-size)}}
+        [:div.noselect
+         {:style {:position    "absolute"
+                  :user-select "none"
+                  :left        (* (+ x nx) global-size)
+                  :top         (* (+ y ny) global-size)}}
          pos-indicator-str])
       [:div {:style {:box-sizing     "border-box"
                      :border-radius  4
@@ -764,3 +721,17 @@
     (fn [[pos {:keys [label colour]}]]
       (waypoint state pos colour label))
     waypoints)))
+
+(defn position-refs
+  [{:keys [size]} {:keys [grid]}]
+  (into
+   [:div#refs]
+   (map
+    (fn [[x y]]
+      [:div {:style {:width            size
+                     :height           size
+                     :position         "absolute"
+                     :left             (* size x)
+                     :top              (* size y)
+                     :background-color "rgba(0,0,0,0.2);"}}])
+    (apply concat (keys grid)))))

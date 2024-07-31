@@ -65,13 +65,14 @@
 
 .resize-handle {
   position: absolute;
+  visibility: visible;
   left: 50%;
   top: 50%;
-  width: 9px;
-  height: 9px;
-  background-color: #00f;
+  width: 8px;
+  height: 8px;
+  background-color: #B9C2C5;
   border-radius: 51%;
-  opacity: 1;
+  opacity: 0.8;
   transition: opacity 0.3s ease-in-out;
   transform: translate(-50%, -50%);
 }
@@ -94,12 +95,16 @@
 .bm { top: 100%; left: 50%;  cursor: ns-resize;   z-index: 10000 }
 .br { top: 100%; left: 100%; cursor: nwse-resize; z-index: 10000 }
 
-.drag-handle {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 25px;
-    height: 25px;
-    opacity: 0.2;
-    background-color: hotpink;
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Old versions of Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently
+                                  supported by Chrome, Edge, Opera and Firefox */
 }
