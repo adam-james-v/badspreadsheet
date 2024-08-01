@@ -127,7 +127,8 @@
        (when true (every? some? (map #(get inputs %) distinct-sources))
              (try
                (let [op     (if force? operation memoized-operation)
-                     result (op (map inputs distinct-sources))]
+                     result (binding [*ns* (find-ns 'user)]
+                              (op (map inputs distinct-sources)))]
                  (-> machine
                      (assoc :output result)
                      (assoc :latest-output result)))
@@ -137,7 +138,8 @@
      ;; generator that always runs without inputs
      (try
        (let [op     (if force? operation memoized-operation)
-             result (op)]
+             result (binding [*ns* (find-ns 'user)]
+                      (op))]
          (-> machine
              (assoc :output result)
              (assoc :latest-output result)))
@@ -414,17 +416,3 @@
   ([_ [x1 y1] [x2 y2] machine]
    (let [refs (map (fn [v] (mapv + v (:position machine))) (u/window [x1 y1] [x2 y2]))]
      (keep get-machine refs))))
-
-(comment
-
-  (add-machine! :a [0 0] nil (fn [] (println "A") 1))
-  (add-machine! :b [1 0] [[0 0]] (fn [x] (println "B") (* 2 x)))
-  (add-machine! :c [0 1] [[0 0]] (fn [x] (println "C") (* 4 x)))
-  (add-machine! :d [0 1] [:b :c] (fn [x y] (println "D") (* x y)))
-  (add-machine! :e [2 1] nil (fn [] (println "E") -1))
-  (add-machine! :f [0 1] [:a :e] (fn [x y] (println "F") (* x y)))
-  (add-machine! :g [10 10] [[2 1]] (fn [x] (println "GG") (+ x x)) 0.3)
-
-
-
-  )

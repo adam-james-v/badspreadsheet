@@ -492,10 +492,7 @@
          [:hiccup/raw-html content]]
 
         :value
-        [:div.value
-         (render-value output)
-         #_[:div "Last Output: " (render-value latest-output)]
-         #_[:div "---- Output: " (render-value output)]]
+        [:div.value (render-value output)]
 
         :control
         [:div.control
@@ -517,10 +514,10 @@
 
             (touch-tilt-control? content)
             [:touch-tilt-control
-             {:style {:display "block"
+             {:id    id
+              :style {:display "block"
                       :width   "100%"
-                      :height  "100%"}
-              :id    id}]
+                      :height  "100%"}}]
 
             (= display-hint :drawing-canvas)
             [:drawing-canvas

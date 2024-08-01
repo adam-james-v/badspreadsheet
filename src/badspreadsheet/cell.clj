@@ -175,15 +175,16 @@
 
 (defn process-form
   [pos initial-form]
-  (let [c#s          (get-c#s initial-form)
+  (let [c#s                (get-c#s initial-form)
         maybe-display-hint (second initial-form)
-        form         (if (display-hint? maybe-display-hint)
-                       (let [[f _k & rest] initial-form]
-                         (conj rest f))
-                       initial-form)
-        output       (cond-> {:form form}
-                       (display-hint? maybe-display-hint)
-                       (assoc :display-hint (:control maybe-display-hint)))]
+        form               (-> (if (display-hint? maybe-display-hint)
+                                 (let [[f _k & rest] initial-form]
+                                   (conj rest f))
+                                 initial-form)
+                               (u/fully-resolve-form 'user))
+        output             (cond-> {:form form}
+                             (display-hint? maybe-display-hint)
+                             (assoc :display-hint (:control maybe-display-hint)))]
     (if (seq c#s)
       (let [let-syms            (vec (repeatedly (count c#s) #(gensym "c#")))
             let-smap            (zipmap c#s let-syms)
@@ -233,7 +234,7 @@
   ([position form-or-str] (formula position [2 4] form-or-str))
   ([position size form-or-str]
    (let [form                                       (if (string? form-or-str)
-                                                      (edn/read-string (format "(do %s)" form-or-str))
+                                                      (read-string (format "(do %s)" form-or-str))
                                                       form-or-str)
          {:keys [processed-form refs display-hint]} (process-form position form)
          f                                          (eval processed-form)
@@ -252,7 +253,7 @@
    (let [{:keys [size position display]
           :or   {display :editor}}                  (get-in @cells [:machines id])
          form                                       (if (string? form-or-str)
-                                                      (edn/read-string (format "(do %s)" form-or-str))
+                                                      (read-string (format "(do %s)" form-or-str))
                                                       form-or-str)
          {:keys [processed-form refs display-hint]} (process-form position form)
          f                                          (eval processed-form)]
