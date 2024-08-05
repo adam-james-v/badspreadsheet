@@ -29,7 +29,7 @@ function clickIsInCursor(e) {
 }
 
 function elementIsActive() {
-  return getActiveElementID() !== null
+  return ( getActiveElementID() !== null );
 }
 
 function isDragHandle(el) {
@@ -51,12 +51,17 @@ function isDescendantOfClass(element, className) {
 }
 
 function shouldPreventMove(e) {
-  return ( e.target.tagName.toLowerCase() === "input" ||
-           e.target.tagName.toLowerCase() === "button" ||
-           isDescendantOfClass( e.target, "cm-editor") ||
-           isDescendantOfClass( e.target, "waypoint") ||
-           isDescendantOfClass( e.target, "prevent-cursor-move") ||
-           isDescendantOfClass( e.target, "resizable") );
+  if (!e.target.tagName) {
+      return;
+  }
+  let a = ( e.target.tagName.toLowerCase() === "input" ||
+            e.target.tagName.toLowerCase() === "button" ||
+            isDescendantOfClass( e.target, "cm-editor") ||
+            isDescendantOfClass( e.target, "waypoint") ||
+            isDescendantOfClass( e.target, "prevent-cursor-move") ||
+            isDescendantOfClass( e.target, "resizable") );
+
+  return a
   //return ( e.target.classList.contains("cm-content") );
   //return ( clickIsInCursor(e) && elementIsActive() || e.target.hasAttribute("onclick") ) && !isDragHandle(e.target);
 }
@@ -284,7 +289,7 @@ function handleMouseDown(e) {
   }
 
   function stopAction() {
-    element.style.overflow = 'visible';
+    //element.style.overflow = 'visible';
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', stopAction);
     sendResizeDataToBackend(element.id,

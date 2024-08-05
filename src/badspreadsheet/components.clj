@@ -144,41 +144,6 @@
     (and (<= cx px ex)
          (<= cy py ey))))
 
-(defn home-point
-  [{:keys [size camera extents]}]
-  (when extents
-    (let [c                 (:location camera)
-          [renderx rendery] (mapv #(* -1 %) c)
-          [ex ey]           extents
-          px                (* size (max 0.25 (min renderx (- ex 0.25))))
-          py                (* size (max 0.25 (min rendery (- ey 0.25))))]
-      (when (visible? c extents [0 0])
-        [:div#origin
-         {:style   {:position "absolute"
-                    :left px
-                    :top  py}}
-         [:div
-          {:style {:width         12
-                   :height        12
-                   :left          (- 6)
-                   :top           (- 6)
-                   :box-sizing    "border-box"
-                   :border-radius 6
-                   :background    "linear-gradient(35deg, #811CFB 10%, #F4ACF0 100%)"
-                   :position      "relative"}}]
-         [:div
-          {:onclick (fe-send {:dispatch :set-camera :position [(- (int (/ ex 2))) (- (int (/ ey 2)))]})
-           :style {:cursor          "crosshair"
-                   :width           15
-                   :height          15
-                   :left            (- 7.5)
-                   :top             (- (+ 7.5 12))
-                   :box-sizing      "border-box"
-                   :border          "1.5px solid rgba(235, 215, 235, 0.4)"
-                   :border-radius   7.5
-                   :backdrop-filter "blur(1px)"
-                   :position        "relative"}}]]))))
-
 (defn collect-location-refs
   [form]
   (letfn [(collect [x]
@@ -275,7 +240,7 @@
                                                                        (- wy (int (/ ey 2)))]})}))
                      (-> (el/text label) (tf/translate [40 1])))
                     (tf/translate [0 (* 30 idx)]))))
-            (conj (vals waypoints) {:colour "#811CFBaa" :position [0 0] :label "origin"})))
+            (conj (vals waypoints) {:colour "#811CFB" :position [0 0] :label "origin"})))
           (tf/translate [20 60]))
       ;;
       #_(into [:g]
@@ -483,7 +448,7 @@
       {:id    (format "movable%s" id)
        :style (merge
                editor-style
-               {:overflow "visible"})}
+               {:overflow "hidden"})}
       (case display
         :editor
         [:div {:id    (str id)
@@ -611,7 +576,7 @@
                           :margin          "0 auto"
                           :box-sizing      "border-box"}]
     [:div.prevent-cursor-move {:style button-bar-style}
-     (button "⌾" "Return To Home Position." (format "centerPosition(%s, %s);" 0 0))
+     (button "⌾" "Return To Home Position." (format "cornerPosition(%s, %s);" 0 0))
      (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
              (fe-send {:dispatch :toggle-waypoint}))
      (button "⎚" "Toggle Display Mode." (fe-send {:dispatch :toggle-display}))
@@ -621,7 +586,7 @@
      [:div "|"]
      (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
      (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
-     [:div "|"]
+     #_#_[:div "|"]
      [:div "Cell Count: " (count (:machines @c/cells))]
      [:div {:style {:font-size   "8pt"
                     :width       0
@@ -629,7 +594,7 @@
       (str (:display (get-in state [:entities (:active state)])))]]))
 
 (defn cursor
-  [{:keys [location size]} {:keys [waypoints] :as state}]
+  [{:keys [location size primary secondary]} {:keys [waypoints] :as state}]
   (let [{camera      :camera
          global-size :size
          active      :active} state
@@ -646,6 +611,8 @@
        :camera-location   (str/join "," (get-in state [:camera :location]))
        :cursor-location   (str/join "," location)
        :cursor-size       (str/join "," size)
+       :cursor-primary    (str/join "," primary)
+       :cursor-secondary  (str/join "," secondary)
        :data-store        (json/encode (:store state))
        :active-element-id active
        :style             {:z-index  "2000"
@@ -655,25 +622,27 @@
         [:div.noselect
          {:style {:position    "absolute"
                   :user-select "none"
+                  :text-wrap   "nowrap"
                   :left        (* (- x approx-pos-indicator-w) global-size)
                   :top         (* (dec y) global-size)}}
          pos-indicator-str])
-      (let [pos-indicator-str (format "[%s %s]" (+ ox nx) (+ oy ny))]
+      (let [pos-indicator-str (format "[%s %s]" (dec (+ ox nx)) (dec (+ oy ny)))]
         [:div.noselect
          {:style {:position    "absolute"
                   :user-select "none"
+                  :text-wrap   "nowrap"
                   :left        (* (+ x nx) global-size)
                   :top         (* (+ y ny) global-size)}}
          pos-indicator-str])
-      [:div {:style {:box-sizing     "border-box"
-                     :border-radius  4
-                     :position       "absolute"
-                     :pointer-events "none"
-                     :margin         -6
-                     :left           (* x global-size)
-                     :top            (* y global-size)
-                     :width          cursor-width
-                     :height         cursor-height}}
+      #_[:div {:style {:box-sizing     "border-box"
+                       :border-radius  4
+                       :position       "absolute"
+                       :pointer-events "none"
+                       :margin         -6
+                       :left           (* x global-size)
+                       :top            (* y global-size)
+                       :width          cursor-width
+                       :height         cursor-height}}
        (cursor-icon cursor-width cursor-height)]]]))
 
 (defn random-colour
@@ -691,7 +660,7 @@
    [:circle {:r       6 :cx 8 :cy 8
              :fill    "#B9C2C5"
              :stroke  "black"
-             :onclick (format "centerPosition(%s, %s);" 0 0)
+             :onclick (format "cornerPosition(%s, %s);" 0 0)
              :style   {:cursor "crosshair"}}]])
 
 (defn waypoint
@@ -704,7 +673,7 @@
             :position       "absolute"
             :left           (* size x)
             :top            (* size y)}}
-   [:circle {:onclick (format "centerPosition(%s, %s);" (* size x) (* size y))
+   [:circle {:onclick (format "cornerPosition(%s, %s);" (* size x) (* size y))
              :style   {:cursor "crosshair"}
              :r       6 :cx 8 :cy 8
              :fill    colour}]
@@ -720,15 +689,18 @@
     waypoints)))
 
 (defn position-refs
-  [{:keys [size]} {:keys [grid]}]
-  (into
-   [:div#refs]
-   (map
-    (fn [[x y]]
-      [:div {:style {:width            size
-                     :height           size
-                     :position         "absolute"
-                     :left             (* size x)
-                     :top              (* size y)
-                     :background-color "rgba(0,0,0,0.2);"}}])
-    (apply concat (keys grid)))))
+  [{:keys [size]} {:keys [machines]}]
+  (let [positions (filter #(vector? %) (mapcat :sources (vals machines)))]
+    (into
+     [:div#refs
+      {:pointer-events "none"}]
+     (map
+      (fn [[x y]]
+        [:div {:style {:width            size
+                       :height           size
+                       :position         "absolute"
+                       :left             (* size x)
+                       :top              (* size y)
+                       :background-color "rgba(0,0,0,0.2);"
+                       :pointer-events   "none"}}])
+      positions))))

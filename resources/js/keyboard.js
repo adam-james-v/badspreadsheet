@@ -19,10 +19,10 @@ function initKeyPressListener() {
 
       if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) { keys = ["ctrl", "shift", "f"]; }
 
-      if (e.key === 'ArrowLeft')  { keys = ["left"]; }
-      if (e.key === 'ArrowRight') { keys = ["right"]; }
-      if (e.key === 'ArrowUp')    { keys = ["up"]; }
-      if (e.key === 'ArrowDown')  { keys = ["down"]; }
+      // if (e.key === 'ArrowLeft')  { keys = ["left"]; }
+      // if (e.key === 'ArrowRight') { keys = ["right"]; }
+      // if (e.key === 'ArrowUp')    { keys = ["up"]; }
+      // if (e.key === 'ArrowDown')  { keys = ["down"]; }
 
       if (e.key === 'ArrowLeft' && e.key === 'ArrowRight')  { keys = ["left", "right"]; }
 

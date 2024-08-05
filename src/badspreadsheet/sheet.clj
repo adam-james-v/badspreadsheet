@@ -68,7 +68,8 @@ body {
    (bc/cursor (:cursor state) state)
    bc/origin
    (bc/waypoints state)
-   #_(bc/position-refs state @c/cells)])
+   (bc/position-refs state @c/cells)
+   [:spreadsheet-cursor#sc]])
 
 (defn init!
   []
@@ -87,7 +88,18 @@ body {
      (cell-container state)
      [:div#overlays
       (bc/information-overlay state)
-      (bc/button-bar state)]]))
+      (bc/button-bar state)
+      [:div#row-indicators]
+      [:div#column-indicators]
+      [:div
+       {:style {:position         "fixed"
+                :width            60
+                :height           60
+                :top              0
+                :left             0
+                :background-color "#E6E6FA"
+                :border-right     "1px solid #C0B6D0"
+                :border-bottom    "1px solid #C0B6D0"}}]]]))
 
 (def server-map
   {:port       port
@@ -126,7 +138,7 @@ body {
                        (when-not (= id (get-in @state [:store :active-element]))
                         (bc/cell cell @state)))
                     (vals (:machines cells-state)))
-              #_[(bc/position-refs @state cells-state)])]
+              [(bc/position-refs @state cells-state)])]
        r))
     (catch Exception _e nil)))
 
@@ -145,7 +157,7 @@ body {
                          direction-or-location)
             new-cursor {:location new-loc
                         :size     size}]
-        (dosync
+        #_(dosync
          (swap! state assoc
                 :cursor new-cursor
                 :active nil)
@@ -170,11 +182,19 @@ body {
                        (mapv + size ({:h- [-1 0] :h+ [1 0] :v- [0 -1] :v+ [0 1]} direction))
                        direction-or-size)]
         #_(when (every? #(> % 0) new-size))
-        (dosync
+        #_(dosync
          (swap! state assoc-in [:cursor :size] new-size)
          (server/broadcast!
           server-map
           (bc/cursor (:cursor @state) @state)))))))
+
+(defn- adjust-cursor!
+  [{:keys [location size primary secondary]}]
+  (dosync
+   (swap! state update :cursor merge {:location location :size size :primary primary :secondary secondary})
+   (server/broadcast!
+    server-map
+    (bc/cursor (:cursor @state) @state))))
 
 (defn- add-cell
   []
@@ -223,6 +243,17 @@ body {
   (let [[_ x y] position]
     (move-cursor! [x y])))
 
+(defmethod server/data-handler :adjust-cursor
+  [{:keys [size location primary secondary]}]
+  (let [[_ w h]   size
+        [_ x y]   location
+        [_ px py] primary
+        [_ sx sy] secondary]
+    (adjust-cursor! {:size      [w h]
+                     :location  [x y]
+                     :primary   [px py]
+                     :secondary [sx sy]})))
+
 (defmethod server/data-handler :code
   [{:keys [id code] :as a}]
   (def asdf a)
@@ -230,7 +261,7 @@ body {
 
 (defmethod server/data-handler :mouse-event
   [{:keys [location]}]
-  (move-cursor! (rest location)))
+  #_(move-cursor! (rest location)))
 
 (defmethod server/data-handler :store
   [data]

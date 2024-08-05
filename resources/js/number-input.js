@@ -45,7 +45,6 @@ class NumberInput extends HTMLElement {
     input.addEventListener('change', () => {
       this.sendPostRequest(input.value);
     });
-
     this.addEventListener('keydown', this.handleKeyDown.bind(this), true);
   }
 
@@ -64,7 +63,7 @@ class NumberInput extends HTMLElement {
 
   sendPostRequest(value) {
     let dispatch = "code";
-    let code = `{:control :nmumber}\n${value}`;
+    let code = `{:control :number}\n${value}`;
     fetch('/data', {
       method: 'POST',
       headers: {

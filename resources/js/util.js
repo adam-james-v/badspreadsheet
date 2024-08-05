@@ -31,6 +31,18 @@ function getCursorLocation() {
   return cursorLocation.split(',').map(Number);
 }
 
+function getCursorPrimary() {
+  const cursorElement = document.getElementById('cursor');
+  const cursorPrimary = cursorElement.getAttribute('cursor-primary');
+  return cursorPrimary.split(',').map(Number);
+}
+
+function getCursorSecondary() {
+  const cursorElement = document.getElementById('cursor');
+  const cursorSecondary = cursorElement.getAttribute('cursor-secondary');
+  return cursorSecondary.split(',').map(Number);
+}
+
 function getCursorSize() {
   const cursorElement = document.getElementById('cursor');
   const cursorSize = cursorElement.getAttribute('cursor-size');
@@ -38,8 +50,7 @@ function getCursorSize() {
 }
 
 function getActiveElementID() {
-  const cursorElement = document.getElementById('cursor');
-  return cursorElement.getAttribute('active-element-id');
+  return getFromStore('active-element');
 }
 
 function addVectors(v1, v2) {
@@ -68,4 +79,14 @@ function debounce(func, wait) {
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
   };
+}
+
+function range(start, end) {
+    // If only one argument is provided, assume start is 0
+    if (end === undefined) {
+        end = start;
+        start = 0;
+    }
+    // Create an array of the specified length
+    return Array.from({ length: end - start }, (_, index) => start + index);
 }

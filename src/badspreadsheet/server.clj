@@ -30,6 +30,7 @@
    [:script {:type "module"} [:hiccup/raw-html (slurp (io/resource "js/load-codemirror.js"))]]
    [:script {:src "resources/js/mouse.js" :defer true}]
    [:script {:src "resources/js/keyboard.js" :defer true}]
+   [:script {:src "resources/js/cursor.js" :defer true}]
    [:script {:src "resources/js/grid.js" :defer true}]
    [:script {:src "resources/js/minisheet.js" :defer true}]
    [:script {:src "resources/js/number-input.js" :defer true}]
