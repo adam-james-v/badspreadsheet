@@ -1,0 +1,2 @@
+import{iterable as t}from"./squint-cljs-core.js";function blank_QMARK_(t){return!t||(t.length===0||t.trimLeft().length===0)}function join(r,n){if(n===void 0){n=r;r=""}if(n instanceof Array)return n.join(r);let i="";let o=false;for(const e of t(n)){o&&(i+=r);i+=e;o=true}return i}function trim(t){return t.trim()}function split(t,r){return t.split(r)}function starts_with_QMARK_(t,r){return t.startsWith(r)}export{blank_QMARK_,join,split,starts_with_QMARK_,trim};
+//# sourceMappingURL=string.js.map

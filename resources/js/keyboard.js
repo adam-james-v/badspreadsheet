@@ -56,7 +56,7 @@ function initKeyPressListener() {
 }
 
 function shouldProcessKeypress(event) {
-  const activeElement = document.activeElement;
+  let activeElement = document.activeElement;
 
   // Check if the active element is the body or html
   if (activeElement === document.body || activeElement === document.documentElement) {

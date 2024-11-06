@@ -1,23 +1,19 @@
 {
   "imports": {
-    "squint-cljs": "https://ga.jspm.io/npm:squint-cljs@0.3.36/index.js",
-    "squint-cljs/core.js": "https://ga.jspm.io/npm:squint-cljs@0.3.36/core.js",
-    "squint-cljs/string.js": "https://ga.jspm.io/npm:squint-cljs@0.3.36/string.js",
-    "@codemirror/language": "https://ga.jspm.io/npm:@codemirror/language@6.9.2/dist/index.js",
-    "@codemirror/state": "https://ga.jspm.io/npm:@codemirror/state@6.3.1/dist/index.js",
-    "@codemirror/view": "https://ga.jspm.io/npm:@codemirror/view@6.21.4/dist/index.js",
-    "@nextjournal/clojure-mode": "https://ga.jspm.io/npm:@nextjournal/clojure-mode@0.1.0-rc4/dist/nextjournal/clojure_mode.mjs"
-  },
-  "scopes": {
-    "https://ga.jspm.io/": {
-      "@codemirror/commands": "https://ga.jspm.io/npm:@codemirror/commands@6.3.0/dist/index.js",
-      "@lezer/common": "https://ga.jspm.io/npm:@lezer/common@1.1.0/dist/index.js",
-      "@lezer/highlight": "https://ga.jspm.io/npm:@lezer/highlight@1.1.6/dist/index.js",
-      "@lezer/lr": "https://ga.jspm.io/npm:@lezer/lr@1.3.13/dist/index.js",
-      "@lezer/markdown": "https://ga.jspm.io/npm:@lezer/markdown@1.1.0/dist/index.js",
-      "@nextjournal/lezer-clojure": "https://ga.jspm.io/npm:@nextjournal/lezer-clojure@1.0.0/dist/index.es.js",
-      "style-mod": "https://ga.jspm.io/npm:style-mod@4.1.0/src/style-mod.js",
-      "w3c-keyname": "https://ga.jspm.io/npm:w3c-keyname@2.2.8/index.js"
-    }
+    "squint-cljs": "./resources/js/squint-cljs.js",
+    "squint-cljs/core.js": "./resources/js/squint-cljs-core.js",
+    "squint-cljs/string.js": "./resources/js/squint-cljs-string.js",
+    "@codemirror/language": "./resources/js/codemirror-language.js",
+    "@codemirror/state": "./resources/js/codemirror-state.js",
+    "@codemirror/view": "./resources/js/codemirror-view.js",
+    "@nextjournal/clojure-mode": "./resources/js/nextjournal-clojure-mode.mjs",
+    "@codemirror/commands": "./resources/js/codemirror-commands.js",
+    "@lezer/common": "./resources/js/lezer-common.js",
+    "@lezer/highlight": "./resources/js/lezer-highlight.js",
+    "@lezer/lr": "./resources/js/lezer-lr.js",
+    "@lezer/markdown": "./resources/js/lezer-markdown.js",
+    "@nextjournal/lezer-clojure": "./resources/js/nextjournal-lezer-clojure.js",
+    "style-mod": "./resources/js/style-mod.js",
+    "w3c-keyname": "./resources/js/w3c-keyname.js"
   }
 }

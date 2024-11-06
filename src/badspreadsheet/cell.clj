@@ -9,18 +9,6 @@
 (defonce cell-counter (atom -1))
 (defn new-cell-id [] (swap! cell-counter inc))
 
-(defn cell
-  "create a cell."
-  [])
-
-(defn reset-cell!
-  "Resets the given cell's function and inputs."
-  [])
-
-(defn swap-function!
-  "Swaps in a new function (of the same arity) to the given cell."
-  [id f])
-
 (defn touch!
   "Trigger a recalculation."
   [machine-ref]
@@ -58,7 +46,8 @@
   ([ref-or-machine key val & kvs]
    (let [new-cell (apply (partial assoc (machines/get-machine ref-or-machine)) (concat [key val] (remove nil? kvs)))]
      (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
-     (machines/process-one!))))
+     (machines/process-one!)
+     (:id new-cell))))
 
 (defn c-dissoc
   "Like `dissoc` but for cells."
@@ -66,15 +55,22 @@
   ([ref-or-machine key & ks]
    (let [new-cell (apply (partial dissoc (machines/get-machine ref-or-machine)) (conj ks key))]
      (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
-     (machines/process-one!))))
+     (machines/process-one!)
+     (:id new-cell))))
 
 (defn c-merge
   "Like `merge` but for cells."
   [ref-or-machine & maps]
   (when-let [m (machines/get-machine ref-or-machine)]
-    (let [new-cell (apply merge m maps)]
-      (swap! cells assoc-in [:machines (:id new-cell)] new-cell)
-      (machines/process-one!))))
+    (let [snapshot @cells
+          new-cell (apply merge m maps)
+          mergefn  (fn [state]
+                     (-> state
+                         (assoc-in [:machines (:id new-cell)] new-cell)
+                         machines/process))]
+      ;; use reset! here so that merges in quick succession don't retry and cause UI to 'thrash'.
+      (reset! cells (mergefn snapshot))
+      (:id new-cell))))
 
 (defmulti c#
   (fn [k & _args] k))
@@ -181,7 +177,7 @@
                                  (let [[f _k & rest] initial-form]
                                    (conj rest f))
                                  initial-form)
-                               (u/fully-resolve-form 'user))
+                               #_(u/fully-resolve-form 'user))
         output             (cond-> {:form form}
                              (display-hint? maybe-display-hint)
                              (assoc :display-hint (:control maybe-display-hint)))]
@@ -237,30 +233,88 @@
                                                       (read-string (format "(do %s)" form-or-str))
                                                       form-or-str)
          {:keys [processed-form refs display-hint]} (process-form position form)
-         f                                          (eval processed-form)
-         id                                         (or (machines/get-pos @cells position) (new-cell-id))
+         _                                          (def asdf processed-form)
+         f                                          (binding [*ns* (find-ns 'user)]
+                                                      (eval '(in-ns 'user))
+                                                      (eval processed-form))
+         id                                         (or (first (machines/get-pos @cells position)) (new-cell-id))
          size                                       (get-in @cells [:machines id :size] size)]
      (machines/add-machine! id position size refs f)
-     (c-merge  id {:display-hint display-hint
+     (c-merge  id {:display      :editor
+                   :display-hint display-hint
                    :content      (if (string? form-or-str)
                                    form-or-str
                                    (str form-or-str))})
      id)))
 
 (defn update-formula
-  "Given a form string, produce a working cell. Returns the newly created cell's ID."
+  "Given a form string and cell id, update the cell. Returns the cell's ID."
   ([id form-or-str]
-   (let [{:keys [size position display]
-          :or   {display :editor}}                  (get-in @cells [:machines id])
+   (let [{:keys [size position display]}            (get-in @cells [:machines id])
          form                                       (if (string? form-or-str)
                                                       (read-string (format "(do %s)" form-or-str))
                                                       form-or-str)
          {:keys [processed-form refs display-hint]} (process-form position form)
-         f                                          (eval processed-form)]
-     (machines/add-machine! id position size refs f)
-     (c-merge id {:display      display
-                  :display-hint display-hint
-                  :content      (if (string? form-or-str)
-                                  form-or-str
-                                  (str form-or-str))})
+         _                                          (def wasd processed-form)
+         f                                          (binding [*ns* (find-ns 'user)]
+                                                      (eval '(in-ns 'user))
+                                                      (eval processed-form))]
+     (c-merge id (merge
+                  (when display {:display display})
+                  {:position           position
+                   :size               size
+                   :sources            refs
+                   :operation          f
+                   :memoized-operation (memoize f)
+                   :display-hint       display-hint
+                   :content            (if (string? form-or-str)
+                                         form-or-str
+                                         (str form-or-str))}))
      id)))
+
+(defn restore-cell!
+  "Given a saved cell map, restore it if the ID isn't claimed."
+  ([{:keys [id position size content display display-hint]}]
+   (if (contains? (:machines @cells) id)
+     (println "SKIPPING CELL: " id)
+     (let [form                          (if (string? content)
+                                           (read-string (format "(do %s)" content))
+                                           content)
+           {:keys [processed-form refs]} (process-form position form)
+           f                             (eval processed-form)]
+       (machines/add-machine! id position size refs f)
+       (c-merge id (merge
+                    (when display {:display display})
+                    {:position           position
+                     :size               size
+                     :sources            refs
+                     :operation          f
+                     :memoized-operation (memoize f)
+                     :display-hint       display-hint
+                     :content            content}))
+       id))))
+
+(defn hydrate-cell!
+  "Given a saved cell map, rebuild its functions."
+  ([{:keys [id position size content display display-hint]}]
+   (let [form                          (if (string? content)
+                                         (read-string (format "(do %s)" content))
+                                         content)
+         _ (println "A")
+         _ (def a form)
+         {:keys [processed-form refs]} (process-form position form)
+         _ (println "B")
+         _ (def b processed-form)
+         f                             (eval processed-form)
+         _ (println "C")]
+     (machines/map->Machine
+      {:id                 id
+       :position           position
+       :size               size
+       :sources            refs
+       :inputs             {}
+       :operation          f
+       :memoized-operation (memoize f)
+       :display            display
+       :display-hint       display-hint
+       :content            content}))))

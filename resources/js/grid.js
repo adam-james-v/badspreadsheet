@@ -21,7 +21,6 @@ let visibleEndX = null;
 let visibleStartY = null;
 let visibleEndY = null;
 
-
 function updateColumnIndicators(force) {
   const viewportWidth = window.innerWidth;
   const startX = Math.floor(-translateX / cellSize) * cellSize;
@@ -99,39 +98,41 @@ document.addEventListener('cursorchange', (e) => {
 })
 
 document.addEventListener('DOMContentLoaded', () => {
+  let isCtrlKeyPressed = getFromStore("pin-movement") || false;
 
   function updateTranslation() {
-    const dx = targetTranslateX - translateX;
-    const dy = targetTranslateY - translateY;
-    translateX += dx * smoothness;
-    translateY += dy * smoothness;
-    document.getElementById('cell-container').style.transform = `translate(${translateX}px, ${translateY}px)`;
-
-    // Move the grid
-    const gridX = (translateX % cellSize + cellSize) % cellSize - cellSize;
-    const gridY = (translateY % cellSize + cellSize) % cellSize - cellSize;
-    gridPattern.setAttribute("patternTransform", `translate(${gridX}, ${gridY})`);
-
-    // Update indicators
-    updateColumnIndicators();
-    updateRowIndicators();
-
-    // Check if there's significant movement
-    if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-      isMoving = true;
-      clearTimeout(movementTimer);
-      movementTimer = setTimeout(checkMovementStopped, movementTimeout);
+    if (true) {
+      const dx = targetTranslateX - translateX;
+      const dy = targetTranslateY - translateY;
+      translateX += dx * smoothness;
+      translateY += dy * smoothness;
+      document.getElementById('cell-container').style.transform = `translate(${translateX}px, ${translateY}px)`;
+      // Move the grid
+      const gridX = (translateX % cellSize + cellSize) % cellSize - cellSize;
+      const gridY = (translateY % cellSize + cellSize) % cellSize - cellSize;
+      gridPattern.setAttribute("patternTransform", `translate(${gridX}, ${gridY})`);
+      // Update indicators
+      updateColumnIndicators();
+      updateRowIndicators();
+      // Check if there's significant movement
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+        isMoving = true;
+        clearTimeout(movementTimer);
+        movementTimer = setTimeout(checkMovementStopped, movementTimeout);
+      }
     }
     requestAnimationFrame(updateTranslation);
   }
 
   function handleWheel(event) {
-    // event.preventDefault();
-    targetTranslateX -= event.deltaX;
-    targetTranslateY -= event.deltaY;
-    isMoving = true;
-    clearTimeout(movementTimer);
-    movementTimer = setTimeout(checkMovementStopped, movementTimeout);
+    if (!getFromStore("pin-movement")) {
+      // event.preventDefault();
+      targetTranslateX -= event.deltaX;
+      targetTranslateY -= event.deltaY;
+      isMoving = true;
+      clearTimeout(movementTimer);
+      movementTimer = setTimeout(checkMovementStopped, movementTimeout);
+    }
   }
 
   function checkMovementStopped() {
@@ -140,6 +141,21 @@ document.addEventListener('DOMContentLoaded', () => {
       sendCoordinatesToServer(translateX, translateY);
     }
   }
+
+  // Add event listeners for keydown and keyup to track Ctrl key state
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Control') {
+      isCtrlKeyPressed = !isCtrlKeyPressed;
+    }
+    send({"dispatch": "store",
+          "pin-movement": isCtrlKeyPressed});
+  });
+
+  // window.addEventListener('keyup', (event) => {
+  //   if (event.key === 'Control') {
+  //     isCtrlKeyPressed = false;
+  //   }
+  // });
 
   window.addEventListener('wheel', handleWheel, { passive: true });
   updateTranslation();

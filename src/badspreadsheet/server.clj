@@ -21,7 +21,7 @@
            :type "text/css"
            :href "resources/css/style.css"}]
    [:script {:src "resources/js/htmx.min.js"}]
-   [:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
+   #_[:script {:src "https://unpkg.com/idiomorph@0.3.0"}]
    [:script {:src "resources/js/ws.js"}]
    [:script {:type "importmap"} [:hiccup/raw-html (slurp (io/resource "js/codemirror-import-map.json"))]]
    ;; my scripts
@@ -33,7 +33,10 @@
    [:script {:src "resources/js/cursor.js" :defer true}]
    [:script {:src "resources/js/grid.js" :defer true}]
    [:script {:src "resources/js/minisheet.js" :defer true}]
+   [:script {:src "resources/js/x3dom.js" :defer true}]
    [:script {:src "resources/js/number-input.js" :defer true}]
+   [:script {:src "resources/js/points-editor.js" :defer true}]
+   [:script {:src "resources/js/sdf-view.js" :defer true}]
    [:script {:src "resources/js/draw-canvas.js" :defer true}]])
 
 (defn page-body
@@ -99,6 +102,13 @@
 
 ;; routing
 
+(defn file-to-byte-array [relative-path]
+  (let [file (io/file relative-path)
+        resource-stream (io/input-stream file)
+        byte-array-output-stream (java.io.ByteArrayOutputStream.)]
+    (io/copy resource-stream byte-array-output-stream)
+    (.toByteArray byte-array-output-stream)))
+
 (defn parse-request
   [{:keys [params body]}]
   {:body (json/parse-string (slurp body) keyword vector)
@@ -108,13 +118,20 @@
   [{:keys [params]}]
   (let [{:keys [file partial-path]} params
         ext                         (last (str/split file #"\."))
-        resource                    (io/resource (str partial-path "/" file))]
+        resource                    (try
+                                      (io/resource (str partial-path "/" file))
+                                      (catch Exception _e nil))]
     {:status  200
-     :headers {"Content-Type" (format (if (#{"png" "jpeg" "jpg"} ext) "image/%s" "text/%s") (if (= ext "js") "javascript" ext))}
-     :body    (slurp resource)
-     #_       (if resource
-                (slurp resource)
-                (badspreadsheet.components/file-to-byte-array file))}))
+     :headers {"Content-Type" (format (if (#{"png" "jpeg" "jpg" "svg"} ext)
+                                        "image/%s"
+                                        "text/%s")
+                                      (case ext
+                                        ("js" "mjs") "javascript"
+                                        ("svg")      "svg+xml"
+                                        ext))}
+     :body    (case ext
+                ("png" "jpeg" "jpg") (file-to-byte-array resource)
+                (slurp resource))}))
 
 (def default-routes
   {["/resources/:partial-path/:file" :get] resource-response

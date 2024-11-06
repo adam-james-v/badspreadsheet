@@ -20,11 +20,11 @@
    [svg-clj2.utils :as u]))
 
 (defn file-to-byte-array [relative-path]
-  (let [file (io/file relative-path)                       ; Create a file object
-        resource-stream (io/input-stream file)]            ; Open input stream for the file
-    (let [byte-array-output-stream (java.io.ByteArrayOutputStream.)]
-      (io/copy resource-stream byte-array-output-stream)   ; Copy stream data to byte array output stream
-      (.toByteArray byte-array-output-stream))))           ; Convert byte array output stream to byte array
+  (let [file (io/file relative-path)
+        resource-stream (io/input-stream file)
+        byte-array-output-stream (java.io.ByteArrayOutputStream.)]
+    (io/copy resource-stream byte-array-output-stream)
+    (.toByteArray byte-array-output-stream)))
 
 (defn bytes->b64u
   "Encode data to base64 byte array (using url-safe variant)."
@@ -372,44 +372,6 @@
              (render-value value))
      (render-value value))])
 
-(def points-editor-template
-  [:template#points-editor-template
-   [:style     "
-    :host {
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-    svg {
-      pointer-events: auto;
-      box-sizing: border-box;
-      width: 100%;
-      height: 100%;
-      border: 1px solid #000;
-    }
-    button {
-      pointer-events: auto;
-    }
-    .draggable {
-      pointer-events: auto;
-      cursor: move;
-    }
-    path {
-      fill: none;
-      stroke: black;
-      stroke-width: 2;
-    }"]
-   [:div.prevent-cursor-move
-    {:style {:position    "absolute"
-             :padding     5
-             :white-space "nowrap"}}
-    [:button#add-point.prevent-cursor-move "[+]"]
-    [:button#remove-point.prevent-cursor-move "[-]"]
-    [:button#toggle-mode.prevent-cursor-move "MODE (polyline)"]]
-   [:svg.prevent-cursor-move {:xmlns "http://www.w3.org/2000/svg"}
-    [:g#keep
-     [:circle {:cx 0 :cy 0 :r 7 :fill "green"}]]]])
-
 (defmacro ->js
   [& forms]
   (let [res (squint/compile-string (str/join "\n" forms))]
@@ -442,8 +404,9 @@
                               wrap-js-in-content-loaded
                               identity)]
     [:div
-     {:cursor "auto"
-      :id     (format "entity%s" id)}
+     {:cursor      "auto"
+      :class       (format "entity%s" id)
+      :hx-swap-oob (format "outerHTML:.entity%s" id)}
      [:div.resizable
       {:id    (format "movable%s" id)
        :style (merge
@@ -469,13 +432,29 @@
             (= display-hint :number)
             [:number-input {:id id} output]
 
+            (= display-hint :slider)
+            [:slider-input {:id id} output]
+
             (= display-hint :mini-sheet)
             [:mini-spreadsheet {:id id :rows 10 :cols 10}]
 
-            (points-content? content)
+            (= display-hint :points-editor)
             [:points-editor
              {:id          id
-              :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) (maybe-read-string content)))}]
+              :data-points (json/encode (last (maybe-read-string content)))}]
+
+            (= display-hint :stack)
+            (into [:div.stack]
+                  (keep
+                   (fn [ref]
+                     (-> ref
+                         c/get-cell
+                         (update :id (fn [other-id] (str id "_" other-id)))
+                         (assoc :position [0 0])
+                         (assoc :size size)
+                         (assoc :display :value)
+                         (cell state))))
+                  output)
 
             (touch-tilt-control? content)
             [:touch-tilt-control
@@ -492,19 +471,17 @@
                                 :height  "100%"}
                   :id          id}
                output (assoc :data-points (json/encode (mapv (fn [[x y]] {:x x :y y}) output))))]
-
             :else
             nil)]])
-
       ;; ID tag
       [:div.noselect
        {:style {:position  "absolute"
                 :top       0
                 :right     0
                 :padding   2
-                :font-size "7pt"}}
+                :font-size "7.5pt"}}
        "ID:" id]
-      [:<>
+      [:div.handles
        [:button
         {:title   "Toggle Display"
          :onclick (fe-send {:dispatch :toggle-display :id id})
@@ -544,14 +521,15 @@
        #_[:script (wrap-fn (format "attachEntityListeners('movable%s');" id))]]]]))
 
 (def button-style-map
-  {:width         "40px"
-   :aspect-ratio  "1/1"
-   :box-sizing    "border-box"
-   :border        "1px solid #222"
-   :border-radius "2px"
-   :font-family   "monospace"
-   :font-size     "11pt"
-   :cursor        "pointer"})
+  {:width          "40px"
+   :aspect-ratio   "1/1"
+   :box-sizing     "border-box"
+   :border         "1px solid #222"
+   :border-radius  "2px"
+   :font-family    "monospace"
+   :font-size      "16pt"
+   :cursor         "pointer"
+   :pointer-events "auto"})
 
 (defn button
   ([label tooltip action] (button {} label tooltip action))
@@ -561,37 +539,6 @@
      :onclick action
      :style   (merge button-style-map style)}
     label]))
-
-(defn button-bar
-  [state]
-  (let [cursor-pos       (get-in state [:cursor :location])
-        button-bar-style {:position        "fixed"
-                          :bottom          "20px"
-                          :display         "flex"
-                          :flex-direction  "row"
-                          :gap             "5px"
-                          :align-items     "center"
-                          :justify-content "center"
-                          :width           "100%"
-                          :margin          "0 auto"
-                          :box-sizing      "border-box"}]
-    [:div.prevent-cursor-move {:style button-bar-style}
-     (button "⌾" "Return To Home Position." (format "cornerPosition(%s, %s);" 0 0))
-     (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
-             (fe-send {:dispatch :toggle-waypoint}))
-     (button "⎚" "Toggle Display Mode." (fe-send {:dispatch :toggle-display}))
-     [:div "|"]
-     (button "⏯" "Process One Step." (fe-send {:dispatch :run-command
-                                          :command  :process-one}))
-     [:div "|"]
-     (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
-     (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))
-     #_#_[:div "|"]
-     [:div "Cell Count: " (count (:machines @c/cells))]
-     [:div {:style {:font-size   "8pt"
-                    :width       0
-                    :user-select "none"}}
-      (str (:display (get-in state [:entities (:active state)])))]]))
 
 (defn cursor
   [{:keys [location size primary secondary]} {:keys [waypoints] :as state}]
@@ -617,23 +564,23 @@
        :active-element-id active
        :style             {:z-index  "2000"
                            :position "relative"}}
-      (let [pos-indicator-str      (format "[%s %s]" ox oy)
-            approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
-        [:div.noselect
-         {:style {:position    "absolute"
-                  :user-select "none"
-                  :text-wrap   "nowrap"
-                  :left        (* (- x approx-pos-indicator-w) global-size)
-                  :top         (* (dec y) global-size)}}
-         pos-indicator-str])
-      (let [pos-indicator-str (format "[%s %s]" (dec (+ ox nx)) (dec (+ oy ny)))]
-        [:div.noselect
-         {:style {:position    "absolute"
-                  :user-select "none"
-                  :text-wrap   "nowrap"
-                  :left        (* (+ x nx) global-size)
-                  :top         (* (+ y ny) global-size)}}
-         pos-indicator-str])
+      #_(let [pos-indicator-str      (format "[%s %s]" ox oy)
+              approx-pos-indicator-w (* 0.45 (count pos-indicator-str))]
+          [:div.noselect
+           {:style {:position    "absolute"
+                    :user-select "none"
+                    :text-wrap   "nowrap"
+                    :left        (* (- x approx-pos-indicator-w) global-size)
+                    :top         (* (dec y) global-size)}}
+           pos-indicator-str])
+      #_(let [pos-indicator-str (format "[%s %s]" (dec (+ ox nx)) (dec (+ oy ny)))]
+          [:div.noselect
+           {:style {:position    "absolute"
+                    :user-select "none"
+                    :text-wrap   "nowrap"
+                    :left        (* (+ x nx) global-size)
+                    :top         (* (+ y ny) global-size)}}
+           pos-indicator-str])
       #_[:div {:style {:box-sizing     "border-box"
                        :border-radius  4
                        :position       "absolute"
@@ -643,7 +590,7 @@
                        :top            (* y global-size)
                        :width          cursor-width
                        :height         cursor-height}}
-       (cursor-icon cursor-width cursor-height)]]]))
+         (cursor-icon cursor-width cursor-height)]]]))
 
 (defn random-colour
   []
@@ -672,7 +619,8 @@
             :z-index        "100000"
             :position       "absolute"
             :left           (* size x)
-            :top            (* size y)}}
+            :top            (* size y)
+            :pointer-events "auto"}}
    [:circle {:onclick (format "cornerPosition(%s, %s);" (* size x) (* size y))
              :style   {:cursor "crosshair"}
              :r       6 :cx 8 :cy 8
@@ -704,3 +652,97 @@
                        :background-color "rgba(0,0,0,0.2);"
                        :pointer-events   "none"}}])
       positions))))
+
+(defn button-bar
+  []
+  (let [button-bar-style {:position        "fixed"
+                          :bottom          "20px"
+                          :display         "flex"
+                          :flex-direction  "row"
+                          :gap             "5px"
+                          :align-items     "center"
+                          :justify-content "center"
+                          :width           "100%"
+                          :margin          "0 auto"
+                          :box-sizing      "border-box"
+                          :pointer-events  "none"}]
+    [:div#button-bar {:style button-bar-style}
+     #_(button "🎚️" "Toggle Mode." (fe-send {:dispatch :toggle-mode}))
+     (button "⎕" "View Pane" (fe-send {:dispatch :run-command
+                                       :command  :toggle-view-pane}))
+     (button "⌾" "Return To Home Position." (format "cornerPosition(%s, %s);" 0 0))
+     (button "⌖" "Add/Remove the Waypoint at top-left of the cursor."
+             (fe-send {:dispatch :toggle-waypoint}))
+     [:div "|"]
+     (button "⏯" "Process One Step." (fe-send {:dispatch :run-command
+                                               :command  :process-one}))
+     [:div "|"]
+     (button "⎚" "Toggle Display Mode." (fe-send {:dispatch :toggle-display}))
+     (button "+" "Add a Cell." (fe-send {:dispatch :add-cell}))
+     (button {:font-size "8pt"} "❌" "Delete this Element." (fe-send {:dispatch :remove-cell}))]))
+
+(defn arrange-bar
+  [state]
+  (let [button-bar-style {:position        "fixed"
+                          :top             "65px"
+                          :display         "flex"
+                          :flex-direction  "row"
+                          :gap             "5px"
+                          :align-items     "center"
+                          :justify-content "center"
+                          :width           "100%"
+                          :margin          "0 auto"
+                          :box-sizing      "border-box"
+                          :pointer-events  "none"}]
+    [:<>
+     [:div#arrange-bar {:style button-bar-style}
+      [:div "|"]
+      (button "🥞" "Stack." (fe-send {:dispatch :run-command
+                                      :command  :stack}))
+      (button "↔" "Arrange Horizontally." (fe-send {:dispatch :run-command
+                                                    :command  :arrange-h}))
+      (button "↕" "Arrange Vertically." (fe-send {:dispatch :run-command
+                                                  :command  :arrange-v}))
+      [:div "|"]
+      (button "📍" "Pin Sheet" (fe-send {:dispatch :run-command
+                                         :command  :toggle-pin-movement}))]
+     (into
+      [:div#waypoint-bar {:style (assoc button-bar-style :top "125px")}]
+      (for [[pos {:keys [label colour]}] (:waypoints state)]
+        (let [wp-circle (waypoint state pos colour label)]
+          (update-in wp-circle [1 :style] (fn [style]
+                                            (-> style
+                                                (dissoc :position :left :top)))))))]))
+
+;; js implementation in grid.js
+;; some styling done in style.css
+(def position-indicators
+  [:div#position-indicators
+   [:div#row-indicators]
+   [:div#column-indicators]
+   [:div#indicator-corner]])
+
+(defn view-pane
+  [{:keys [output] :or {output ""}} {:keys [view-pane]}]
+  (let [{:keys [cell active]} view-pane]
+    [:div#pinned-view.resizable
+     {:style {:display  (if active "flex" "none")
+              :background-color "#E6E6FA"
+              :bottom   20
+              :left     60
+              :border   "1px solid #C0B6D0"
+              :width    500
+              :height   500
+              :position "fixed"}}
+     [:div.resize-handle.tr]
+     [:div.value
+      {:style {:width  "100%"
+               :height "100%"}}
+      (when active
+        (render-value output))]
+     [:input {:style  {:position "absolute"
+                       :bottom   0}
+              :type   "text"
+              :value  (str cell)
+              :onblur "send({'dispatch': 'run-command', 'command': 'set-view-pane-cell', 'args': [event.target.value]});"}]
+     #_[:div {:style {:width 800}}]]))

@@ -1,10 +1,13 @@
 (ns badspreadsheet.sheet
   (:require
-   [badspreadsheet.machines :as machines]
    [badspreadsheet.cell :as c]
    [badspreadsheet.components :as bc]
+   [badspreadsheet.machines :as machines]
    [badspreadsheet.server :as server]
    [badspreadsheet.util :as u]
+   [clojure.core.async :as async]
+   [clojure.data :as data]
+   [clojure.edn :as edn]
    [clojure.string :as str]))
 
 (defonce state (atom {:active    nil
@@ -12,8 +15,10 @@
                       :size      20
                       :camera    {:location [0 0]}
                       :waypoints {}
-                      :cursor    {:location [0 0]
-                                  :size     [3 3]}}))
+                      :cursor    {:location  [0 0]
+                                  :size      [3 3]
+                                  :primary   [0 0]
+                                  :secondary [0 0]}}))
 
 (defonce port (server/get-port {:port (range 8000 9000)}))
 
@@ -38,6 +43,8 @@ body {
              :width    "100%"
              :height   "100%"}}
    [:defs
+    #_[:clipPath#gridSquareClipPath
+     [:path {:d            "M 20 0 L 0 0 0 20"}]]
     [:pattern#gridPattern
      {:width        20
       :height       20
@@ -45,6 +52,7 @@ body {
      [:path {:d            "M 20 0 L 0 0 0 20"
              :fill         "none"
              :stroke       "#C0B6D0"
+             #_#_:clip-path "url(#gridSquareClipPath)"
              :stroke-width 1}]]]
    [:rect {:width  "100%"
            :height "100%"
@@ -63,15 +71,18 @@ body {
                   (format "translate(%spx, %spx);" x y))}}
    (into
     [:<>]
-    (for [[_ cell] (:machines @c/cells)]
-      (bc/cell cell state {:init true})))
+    (let [grouped-cells (group-by :display-hint (sort-by :position (vals (:machines @c/cells))))
+          sorted-cells  (apply concat
+                               (conj (vec (vals (dissoc grouped-cells :points-editor))) (:points-editor grouped-cells)))]
+      (for [cell sorted-cells]
+        (bc/cell cell state {:init true}))))
    (bc/cursor (:cursor state) state)
    bc/origin
    (bc/waypoints state)
    (bc/position-refs state @c/cells)
    [:spreadsheet-cursor#sc]])
 
-(defn init!
+(defn init-sheet!
   []
   (let [state @state]
     [:<>
@@ -88,18 +99,39 @@ body {
      (cell-container state)
      [:div#overlays
       (bc/information-overlay state)
-      (bc/button-bar state)
-      [:div#row-indicators]
-      [:div#column-indicators]
-      [:div
-       {:style {:position         "fixed"
-                :width            60
-                :height           60
-                :top              0
-                :left             0
-                :background-color "#E6E6FA"
-                :border-right     "1px solid #C0B6D0"
-                :border-bottom    "1px solid #C0B6D0"}}]]]))
+      (bc/button-bar)
+      (bc/arrange-bar state)
+      bc/position-indicators
+      (let [cell (c/get-cell (get-in state [:view-pane :cell]))]
+        (bc/view-pane cell state))]]))
+
+(defn init-focus!
+  []
+  (let [state @state]
+    [:<>
+     #_[:script (bc/wrap-js-in-content-loaded "initKeyPressListener();")]
+     #_[:script (bc/wrap-js-in-content-loaded (format "initMouseEventsListener(%s);" (:size state)))]
+     ;; initial cell render
+     [:div#grid-container
+      {:style {:display  "inline-block"
+               :width    "100vw"
+               :height   "100vh"
+               :overflow "hidden"
+               :position "relative"}}
+      grid-square]
+     (bc/cursor (:cursor state) state)
+     [:div#overlays
+      (bc/information-overlay state)
+      (bc/button-bar)
+      (bc/arrange-bar state)]]))
+
+(defn init!
+  []
+  (let [{:keys [mode] :or {mode :sheet}} @state]
+    [:div#main
+     (case mode
+       :sheet (init-sheet!)
+       :focus (init-focus!))]))
 
 (def server-map
   {:port       port
@@ -107,13 +139,14 @@ body {
                                            (conj server/page-head (deref #'grid-style))
                                            [(init!)])})}})
 
-(defn- render-cell
+(defn render-cell
   [cell-id]
   (try
     (server/broadcast!
      server-map
      (let [cell (c/get-cell cell-id)]
-       [:div#insert-target {:hx-swap-oob "afterend"}
+       [:div#insert-target
+        {:hx-swap-oob "afterend"}
         (bc/cell cell @state)]))
     (catch Exception _e nil)))
 
@@ -126,23 +159,106 @@ body {
        (bc/cursor (:cursor state) state)))
     (catch Exception _e nil)))
 
-;; make this more efficient by only sending changes
-(defn- render
-  [_k _atom _old cells-state]
+(defn- direct-render-changes
+  [_k _atom old cells-state]
+  (let [[_ changes _] (data/diff old cells-state)
+        state @state]
+    (when changes
+      (try
+        (server/broadcast!
+         server-map
+         ;; note that state here is NOT the cell state, but the sheet state
+         (let [changed-ids (keys (:machines changes))
+               r           (concat
+                            (mapv (fn [id]
+                                    (let [{:keys [id] :as cell} (get-in cells-state [:machines id])]
+                                      (when-not (= id (get-in state [:store :active-element]))
+                                        (bc/cell cell state))))
+                                  changed-ids)
+                            [(bc/position-refs state cells-state)]
+                            [(let [cell (c/get-cell (get-in state [:view-pane :cell]))]
+                               (bc/view-pane cell state))])]
+           r))
+        (catch Exception _e nil)))))
+
+;; BASIC AGENT BASED RENDERING
+
+(def pending-changes (agent #{}))
+(def render-scheduled (atom false))
+#_
+(defn- render-accumulated-changes
+  [changed-ids]
   (try
     (server/broadcast!
      server-map
-     ;; note that state here is NOT the cell state, but the sheet state
-     (let [r (concat
-              (mapv (fn [{:keys [id] :as cell}]
-                       (when-not (= id (get-in @state [:store :active-element]))
-                        (bc/cell cell @state)))
-                    (vals (:machines cells-state)))
-              [(bc/position-refs @state cells-state)])]
+     (let [state @state
+           r (concat
+              (mapv (fn [id]
+                      (let [{:keys [id] :as cell} (get-in @c/cells [:machines id])]
+                        (when-not (= id (get-in state [:store :active-element]))
+                          (bc/cell cell state))))
+                    changed-ids)
+              [(bc/position-refs state @c/cells)]
+              [(let [cell (c/get-cell (get-in state [:view-pane :cell]))]
+                 (bc/view-pane cell state))])]
        r))
-    (catch Exception _e nil)))
+    (catch Exception _e nil))
+  #{}) ; Return empty set to reset pending-changes
 
-(add-watch c/cells :render #'render)
+(defn- render-accumulated-changes
+  [changed-ids]
+  (try
+    (let [state @state
+          cells @c/cells
+          active-element (get-in state [:store :active-element])
+          view-pane-cell (c/get-cell (get-in state [:view-pane :cell]))]
+      (server/broadcast!
+       server-map
+       (concat
+        (into []
+              (comp
+               (map #(get-in cells [:machines %]))
+               (remove #(= (:id %) active-element))
+               (map #(bc/cell % state))
+               (remove nil?))
+              changed-ids)
+        [(bc/position-refs state cells)
+         (bc/view-pane view-pane-cell state)])))
+    (catch Exception e
+      (println "Error in render-accumulated-changes:" (.getMessage e))))
+  #{}) ; Return empty set to reset pending-changes
+
+(defn- schedule-render []
+  (when (compare-and-set! render-scheduled false true)
+    (send-off pending-changes
+              (fn [changes]
+                (Thread/sleep 24)
+                (reset! render-scheduled false)
+                (render-accumulated-changes changes)))))
+
+(defn- render
+  [_k _atom old cells-state]
+  (let [[_ changes _] (data/diff old cells-state)]
+    (when changes
+      (let [changed-ids (remove (set (:active @state)) (keys (:machines changes)))]
+        (send pending-changes into changed-ids)
+        (schedule-render)))))
+
+(add-watch machines/state :render #'render)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 (defn- move-cursor!
   [direction-or-location]
@@ -158,10 +274,10 @@ body {
             new-cursor {:location new-loc
                         :size     size}]
         #_(dosync
-         (swap! state assoc
-                :cursor new-cursor
-                :active nil)
-         (server/broadcast! server-map (bc/cursor (:cursor @state) @state)))))))
+           (swap! state assoc
+                  :cursor new-cursor
+                  :active nil)
+           (server/broadcast! server-map (bc/cursor (:cursor @state) @state)))))))
 
 (defn- resize-cursor!
   [direction-or-size]
@@ -255,8 +371,7 @@ body {
                      :secondary [sx sy]})))
 
 (defmethod server/data-handler :code
-  [{:keys [id code] :as a}]
-  (def asdf a)
+  [{:keys [id code]}]
   (c/update-formula id code))
 
 (defmethod server/data-handler :mouse-event
@@ -274,10 +389,119 @@ body {
     (swap! state update :store merge data)
     (render-cursor)))
 
+(defn- toggle-view-pane
+  []
+  (swap! state update-in [:view-pane :active] not)
+  (let [cell (c/get-cell (get-in @state [:view-pane :cell]))]
+    (server/broadcast!
+     server-map
+     (bc/view-pane cell @state))))
+
+(defn- toggle-pin-movement
+  []
+  (swap! state update-in [:store :pin-movement] not)
+  (render-cursor))
+
+(defn- set-view-pane
+  [id-or-pos]
+  (let [id-or-pos (try
+                    (edn/read-string id-or-pos)
+                    (catch Exception _ nil))]
+    (when id-or-pos
+      (swap! state assoc-in [:view-pane :cell] id-or-pos)
+      (let [cell (c/get-cell id-or-pos)]
+        (server/broadcast!
+         server-map
+         (bc/view-pane cell @state))))))
+
+(defn arrange-h!
+  ([]
+   (let [{:keys [primary secondary]} (:cursor @state)]
+     (arrange-h! primary secondary)))
+  ([corner1 corner2]
+   (let [[w h]       [6 6]
+         cell-ids    (machines/get-ids-at-positions @c/cells (u/window corner1 corner2))
+         cells       (sort-by :position (distinct (keep #(c/get-cell %) cell-ids)))
+         [x1 y1]     (:position (first cells))
+         new-cells   (into {}
+                           (map-indexed (fn [idx {:keys [id]}]
+                                          [id {:position [(+ x1 (* idx (inc w))) y1]
+                                               :size     [w h]}])
+                                        cells))
+         bulk-update (fn bulk-update
+                       [state]
+                       (if (seq new-cells)
+                         (-> state
+                             (update :machines (partial merge-with merge) new-cells)
+                             machines/update-grid)
+                         state))]
+     (swap! c/cells bulk-update)
+     true)))
+
+(defn arrange-v!
+  ([]
+   (let [{:keys [primary secondary]} (:cursor @state)]
+     (arrange-v! primary secondary)))
+  ([corner1 corner2]
+   (let [[w h]       [6 6]
+         cell-ids    (machines/get-ids-at-positions @c/cells (u/window corner1 corner2))
+         cells       (sort-by :position (distinct (keep #(c/get-cell %) cell-ids)))
+         [x1 y1]     (:position (first cells))
+         new-cells   (into {}
+                           (map-indexed (fn [idx {:keys [id]}]
+                                          [id {:position [x1 (+ y1 (* idx (inc h)))]
+                                               :size     [w h]}])
+                                        cells))
+         bulk-update (fn bulk-update
+                       [state]
+                       (if (seq new-cells)
+                         (-> state
+                             (update :machines (partial merge-with merge) new-cells)
+                             machines/update-grid)
+                         state))]
+     (swap! c/cells bulk-update)
+     true)))
+
+(defn stack!
+  ([]
+   (let [{:keys [primary secondary]} (:cursor @state)]
+     (stack! primary secondary)))
+  ([corner1 corner2]
+   (let [cell-ids      (machines/get-ids-at-positions @c/cells (u/window corner1 corner2))
+         cells         (sort-by :position (distinct (keep #(c/get-cell %) cell-ids)))
+         [x1 y1]       (:position (first cells))
+         size          (:size (first cells))
+         grouped-cells (group-by :display-hint cells)
+         sorted-cells  (apply concat
+                              (conj (vec (vals (dissoc grouped-cells :points-editor))) (:points-editor grouped-cells)))
+         new-cells     (into {}
+                             (map (fn [{:keys [id]}]
+                                    [id {:position [x1 y1]
+                                         :size     size}])
+                                sorted-cells))
+         bulk-update   (fn bulk-update
+                       [state]
+                       (if (seq new-cells)
+                         (-> state
+                             (update :machines (partial merge-with merge) new-cells)
+                             machines/update-grid)
+                         state))]
+     (swap! c/cells bulk-update)
+     true)))
+
 (defmethod server/data-handler :run-command
   [{:keys [command args]}]
-  (let [cmds {:process-one machines/process-one!}]
-    (apply (get cmds (keyword command)) args)))
+  (let [cmds {:process-one         machines/process-one!
+              :toggle-view-pane    toggle-view-pane
+              :toggle-pin-movement toggle-pin-movement
+              :set-view-pane-cell  set-view-pane
+              :stack               stack!
+              :arrange-v           arrange-v!
+              :arrange-h           arrange-h!}
+        args (rest args)
+        cmd  (get cmds (keyword command) (fn [& _args]
+                                           (println "command not found: " command)))]
+    (apply cmd args)))
 
 (defmethod server/data-handler :adjust-cell
   [{:keys [id x y w h]}]
@@ -297,7 +521,9 @@ body {
                                    :colour (bc/random-colour)}))))
     (server/broadcast!
      server-map
-     (bc/waypoints @state))))
+     [:<>
+      (bc/waypoints @state)
+      (bc/arrange-bar @state)])))
 
 (def next-display
   {:editor :control
@@ -313,10 +539,20 @@ body {
                                                            (u/window position w h)))))]
     ;; todo: create a bulk op here to only swap the c/cells once
     (doseq [{:keys [id display display-hint]} cells]
-      (c/c-assoc id :display (or (if display-hint
-                                   (next-display display)
-                                   ({:editor :value
-                                     :value  :editor} display)) :value)))))
+      (let [new-display (if display-hint
+                          (next-display display)
+                          ({:editor :value
+                            :value  :editor} display))]
+        (when new-display
+          (c/c-assoc id :display new-display))))))
+
+(defmethod server/data-handler :toggle-mode
+  [_]
+  (swap! state update :mode #(get {:sheet :focus
+                                   :focus :sheet} % :sheet))
+  (server/broadcast!
+   server-map
+   (init!)))
 
 (defn start!
   []

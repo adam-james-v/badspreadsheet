@@ -20,11 +20,21 @@
 ;; that call get-machine with locations or IDs. eg. get-machines with a window function
 (defn get-pos
   [{:keys [grid]} pos]
-  (let [unpacked-grid (into {} (mapcat
-                                (fn [[positions id]]
-                                  (map #(vector % id) positions))
-                                grid))]
+  (let [unpacked-grid (apply merge-with (comp vec concat)
+                             (map
+                              (fn [[positions id]]
+                                (into {} (map #(vector % [id]) positions)))
+                              grid))]
     (get unpacked-grid pos)))
+
+(defn get-ids-at-positions
+  [{positions-map :positions} positions]
+  (-> positions-map
+      (select-keys positions)
+      vals
+      (#(apply concat %))
+      distinct
+      vec))
 
 (defn get-machine
   ([ref] (get-machine @state ref))
@@ -33,9 +43,28 @@
     ;; ref is a machine ID
     (get-in state [:machines ref])
     ;; ref is a position
-    (get-in state [:machines (get-pos state ref)])
+    (get-in state [:machines (first (get-pos state ref))])
     ;; ref is a machine already, still want to get the machine from state by same ID
     (get-in state [:machines (:id ref)]))))
+
+(defn add-machine-to-positions
+  [positions-map {:keys [id position size]}]
+  (let [positions (into {} (map #(vector % [id])) (apply (partial u/window position) size))]
+    (merge-with (comp vec distinct concat) positions-map positions)))
+
+(defn remove-machine-from-positions
+  [positions-map {:keys [id]}]
+  (let [modified  (-> positions-map
+                      (update-vals (fn [ids] (vec (remove #(= % id) ids)))))
+        to-remove (keep (fn [[k v]] (when (empty? v) k)) modified)]
+    (apply (partial dissoc (merge positions-map modified)) to-remove)))
+
+(defn remove-machines-from-positions
+  [positions-map ids-to-remove]
+  (let [modified  (-> positions-map
+                      (update-vals (fn [ids] (vec (remove (set ids-to-remove) ids)))))
+        to-remove (keep (fn [[k v]] (when (empty? v) k)) modified)]
+    (apply (partial dissoc (merge positions-map modified)) to-remove)))
 
 (defn- machine-id->pos-sets
   [{:keys [grid]} machine-id]
@@ -45,27 +74,30 @@
        pos))
    grid))
 
-(defn- update-grid
+(defn update-grid
   [{:keys [machines] :as state}]
   (let [state (update state :grid
                       (fn [grid]
                         (into {} (filter (fn [[_k v]]
                                            ((set (map :id machines)) v))
                                          grid))))]
-    (reduce
-     (fn a [acc-state {:keys [id position size] :as _machine}]
-       (let [[w h]         size
-             new-positions (set (u/window position w h))
-             old-positions (machine-id->pos-sets acc-state id)]
-         (-> acc-state
-             (update :grid (fn [grid] (apply (partial dissoc grid) old-positions)))
-             (update :grid assoc new-positions id))))
-     state
-     (vals (:machines state)))))
+    (as-> state <>
+         (update <> :positions remove-machines-from-positions (map :id (vals (:machines state))))
+         (reduce
+          (fn a [acc-state {:keys [id position size] :as machine}]
+            (let [[w h]         size
+                  new-positions (set (u/window position w h))
+                  old-positions (machine-id->pos-sets acc-state id)]
+              (-> acc-state
+                  (update :grid (fn [grid] (apply (partial dissoc grid) old-positions)))
+                  (update :grid assoc new-positions id)
+                  (update :positions add-machine-to-positions machine))))
+          <>
+          (vals (:machines state))))))
 
 (defn- canonical-position
   [{:keys [machines] :as state} pos]
-  (let [machine-id (get-pos state pos)]
+  (let [machine-id (first (get-pos state pos))]
     (get-in machines [machine-id :position])))
 
 (defn- distinct-sources
@@ -167,7 +199,7 @@
       run-all-machines
       clear-all-inputs))
 
-(defn- process
+(defn process
   [state]
   (let [max-iters (+ 2 (count (:machines state)))
         iters (iterate process-cycle state)]
@@ -179,6 +211,10 @@
           last
           second)
      (first iters))))
+
+(defn process!
+  []
+  (swap! state process))
 
 (defn process-one!
   []
@@ -194,7 +230,7 @@
 (defn- placement-allowed?
   [state id position]
   (when id
-    (let [machine-id (get-pos state position)]
+    (let [machine-id (first (get-pos state position))]
       (or (nil? machine-id)
           (= machine-id id)))))
 
@@ -233,7 +269,7 @@
   ([id position size sources operation] (add-machine! id position size sources operation nil))
   ([id position size sources operation initial-output]
    (let [new-state (add-machine @state id position size sources operation initial-output)]
-     (swap! state (comp process (fn [s] (merge s new-state)))))))
+     (swap! state (comp process (fn [s] (merge-with merge s new-state)))))))
 
 (defn add-machines!
   [machine-defs]
@@ -244,7 +280,7 @@
   [machine-ref]
   (let [id                 (or (:id machine-ref)
                                (if (vector? machine-ref)
-                                 (get-pos @state machine-ref)
+                                 (first (get-pos @state machine-ref))
                                  machine-ref))
         {:keys [position]} (get-in @state [:machines id])]
     (when position
@@ -265,7 +301,7 @@
   (let [ids      (->> machine-refs
                       (keep (fn [machine-ref]
                               (if (vector? machine-ref)
-                                (get-pos @state machine-ref)
+                                (first (get-pos @state machine-ref))
                                 machine-ref)))
                       distinct)
         pos-sets (map
@@ -274,12 +310,14 @@
                           [w h]                   size]
                       (set (u/window position w h))))
                   ids)]
+    (println "IDS" ids)
     (when (seq pos-sets)
       (swap! state
              (fn [s]
                (-> s
                    (update :machines (fn [machines] (apply dissoc machines ids)))
-                   (update :grid (fn [grid] (apply dissoc grid pos-sets))))))
+                   (update :grid (fn [grid] (apply dissoc grid pos-sets)))
+                   (update :positions remove-machines-from-positions ids))))
       (process-one!))))
 
 (defn move-machine!

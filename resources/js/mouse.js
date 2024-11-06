@@ -29,7 +29,8 @@ function clickIsInCursor(e) {
 }
 
 function elementIsActive() {
-  return ( getActiveElementID() !== null );
+  let activeElementID = getActiveElementID();
+  return activeElementID !== undefined && activeElementID !== null;
 }
 
 function isDragHandle(el) {
@@ -52,7 +53,7 @@ function isDescendantOfClass(element, className) {
 
 function shouldPreventMove(e) {
   if (!e.target.tagName) {
-      return;
+      return
   }
   let a = ( e.target.tagName.toLowerCase() === "input" ||
             e.target.tagName.toLowerCase() === "button" ||
@@ -204,15 +205,14 @@ function snapToGrid(value) {
 }
 
 function initializeResizableElements() {
-  const container = document.getElementById('cell-container')
-  container.addEventListener('mousedown', handleMouseDown);
+  // const container = document.getElementById('cell-container')
+  window.addEventListener('mousedown', handleMouseDown);
 }
 
 function handleMouseDown(e) {
   const isResize = e.target.classList.contains('resize-handle') || e.target.classList.contains('inner-handle');
   //const isMove = e.altKey && e.target.classList.contains('drag-handle');
   const isMove = ( e.altKey || isDescendantOfClass( e.target, "drag-handle") ) && isDescendantOfClass( e.target, "resizable");
-
   if (!isResize && !isMove) return;
 
 
